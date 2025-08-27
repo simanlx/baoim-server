@@ -1,0 +1,114 @@
+// Copyright © 2023 OpenIM. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package push
+
+import (
+	"context"
+
+	"BaoIM-Server/pkg/common/config"
+	kfk "BaoIM-Server/pkg/common/kafka"
+	"baoim/protocol/constant"
+	pbchat "baoim/protocol/msg"
+	pbpush "baoim/protocol/push"
+	"baoim/tools/log"
+	"baoim/tools/utils"
+	"github.com/IBM/sarama"
+	"google.golang.org/protobuf/proto"
+)
+
+type ConsumerHandler struct {
+	pushConsumerGroup *kfk.MConsumerGroup
+	pusher            *Pusher
+}
+
+func NewConsumerHandler(config *config.GlobalConfig, pusher *Pusher) (*ConsumerHandler, error) {
+	var consumerHandler ConsumerHandler
+	consumerHandler.pusher = pusher
+	var err error
+	var tlsConfig *kfk.TLSConfig
+	if config.Kafka.TLS != nil {
+		tlsConfig = &kfk.TLSConfig{
+			CACrt:              config.Kafka.TLS.CACrt,
+			ClientCrt:          config.Kafka.TLS.ClientCrt,
+			ClientKey:          config.Kafka.TLS.ClientKey,
+			ClientKeyPwd:       config.Kafka.TLS.ClientKeyPwd,
+			InsecureSkipVerify: false,
+		}
+	}
+	consumerHandler.pushConsumerGroup, err = kfk.NewMConsumerGroup(&kfk.MConsumerGroupConfig{
+		KafkaVersion:   sarama.V2_0_0_0,
+		OffsetsInitial: sarama.OffsetNewest,
+		IsReturnErr:    false,
+		UserName:       config.Kafka.Username,
+		Password:       config.Kafka.Password,
+	}, []string{config.Kafka.MsgToPush.Topic}, config.Kafka.Addr,
+		config.Kafka.ConsumerGroupID.MsgToPush,
+		tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &consumerHandler, nil
+}
+
+func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) {
+	msgFromMQ := pbchat.PushMsgDataToMQ{}
+	if err := proto.Unmarshal(msg, &msgFromMQ); err != nil {
+		log.ZError(ctx, "push Unmarshal msg err", err, "msg", string(msg))
+		return
+	}
+	pbData := &pbpush.PushMsgReq{
+		MsgData:        msgFromMQ.MsgData,
+		ConversationID: msgFromMQ.ConversationID,
+	}
+	sec := msgFromMQ.MsgData.SendTime / 1000
+	nowSec := utils.GetCurrentTimestampBySecond()
+	log.ZDebug(ctx, "push msg", "msg", pbData.String(), "sec", sec, "nowSec", nowSec)
+	if nowSec-sec > 10 {
+		return
+	}
+	var err error
+	switch msgFromMQ.MsgData.SessionType {
+	case constant.SuperGroupChatType:
+		err = c.pusher.Push2SuperGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
+	default:
+		var pushUserIDList []string
+		isSenderSync := utils.GetSwitchFromOptions(pbData.MsgData.Options, constant.IsSenderSync)
+		if !isSenderSync || pbData.MsgData.SendID == pbData.MsgData.RecvID {
+			pushUserIDList = append(pushUserIDList, pbData.MsgData.RecvID)
+		} else {
+			pushUserIDList = append(pushUserIDList, pbData.MsgData.RecvID, pbData.MsgData.SendID)
+		}
+		err = c.pusher.Push2User(ctx, pushUserIDList, pbData.MsgData)
+	}
+	if err != nil {
+		if err == errNoOfflinePusher {
+			log.ZWarn(ctx, "offline push failed", err, "msg", pbData.String())
+		} else {
+			log.ZError(ctx, "push failed", err, "msg", pbData.String())
+		}
+	}
+}
+func (ConsumerHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
+func (ConsumerHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (c *ConsumerHandler) ConsumeClaim(sess sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+) error {
+	for msg := range claim.Messages() {
+		ctx := c.pushConsumerGroup.GetContextFromMsg(msg)
+		c.handleMs2PsChat(ctx, msg.Value)
+		sess.MarkMessage(msg, "")
+	}
+	return nil
+}
