@@ -547,6 +547,7 @@ func (g *GroupNotificationSender) MemberKickedNotification(ctx context.Context, 
 	defer log.ZDebug(ctx, "return")
 	defer func() {
 		if err != nil {
+			s
 			log.ZError(ctx, utils.GetFuncName(1)+" failed", err)
 		}
 	}()
@@ -554,6 +555,20 @@ func (g *GroupNotificationSender) MemberKickedNotification(ctx context.Context, 
 		return err
 	}
 	return g.Notification(ctx, mcontext.GetOpUserID(ctx), tips.Group.GroupID, constant.MemberKickedNotification, tips)
+}
+
+// /聊天室 踢成员通知
+func (g *GroupNotificationSender) RoomMemberKickedNotification(ctx context.Context, tips *sdkws.MemberKickedTips) (err error) {
+	defer log.ZDebug(ctx, "return")
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, utils.GetFuncName(1)+" failed", err)
+		}
+	}()
+	if err := g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return err
+	}
+	return g.Notification(ctx, mcontext.GetOpUserID(ctx), tips.Group.GroupID, constant.RoomMemberKickedNotification, tips)
 }
 
 func (g *GroupNotificationSender) MemberInvitedNotification(ctx context.Context, groupID, reason string, invitedUserIDList []string) (err error) {

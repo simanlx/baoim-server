@@ -726,6 +726,7 @@ func (s *groupServer) GetGroupMemberList(ctx context.Context, req *pbgroup.GetGr
 	return resp, nil
 }
 
+// 踢出群组成员
 func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGroupMemberReq) (*pbgroup.KickGroupMemberResp, error) {
 	resp := &pbgroup.KickGroupMemberResp{}
 	group, err := s.db.TakeGroup(ctx, req.GroupID)
@@ -828,6 +829,158 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 	if err := CallbackKillGroupMember(ctx, s.config, req); err != nil {
 		return nil, err
 	}
+	return resp, nil
+}
+
+// 实现踢出聊天室 群成员的方法，接收上下文和请求参数，返回响应和错误
+func (s *groupServer) KickRoomMember(ctx context.Context, req *pbgroup.KickGroupMemberReq) (*pbgroup.KickGroupMemberResp, error) {
+	// 初始化响应对象
+	resp := &pbgroup.KickGroupMemberResp{}
+	// 从数据库获取群组信息
+	group, err := s.db.TakeGroup(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查被踢用户ID列表是否为空
+	if len(req.KickedUserIDs) == 0 {
+		return nil, errs.ErrArgs.Wrap("KickedUserIDs empty")
+	}
+
+	// 检查被踢用户ID列表是否有重复
+	if utils.IsDuplicateStringSlice(req.KickedUserIDs) {
+		return nil, errs.ErrArgs.Wrap("KickedUserIDs duplicate")
+	}
+	// 从上下文中获取操作人用户ID
+	opUserID := mcontext.GetOpUserID(ctx)
+
+	// 检查操作人是否在被踢用户列表中（不允许自己踢自己）
+	if utils.IsContain(opUserID, req.KickedUserIDs) {
+		return nil, errs.ErrArgs.Wrap("opUserID in KickedUserIDs")
+	}
+
+	// 从数据库查询被踢用户和操作人的群成员信息
+	members, err := s.db.FindGroupMembers(ctx, req.GroupID, append(req.KickedUserIDs, opUserID))
+	if err != nil {
+		return nil, err
+	}
+
+	// 填充群成员的详细信息
+	if err := s.PopulateGroupMember(ctx, members...); err != nil {
+		return nil, err
+	}
+
+	// 将群成员信息存入map，便于快速查询
+	memberMap := make(map[string]*relationtb.GroupMemberModel)
+	for i, member := range members {
+		memberMap[member.UserID] = members[i]
+	}
+
+	// 检查操作人是否为应用管理员
+	isAppManagerUid := authverify.IsAppManagerUid(ctx, s.config)
+
+	// 获取操作人的群成员信息
+	opMember := memberMap[opUserID]
+
+	// 遍历被踢用户列表，检查权限
+	for _, userID := range req.KickedUserIDs {
+		// 检查被踢用户是否为群成员
+		member, ok := memberMap[userID]
+		if !ok {
+			return nil, errs.ErrUserIDNotFound.Wrap(userID)
+		}
+
+		// 如果不是应用管理员，则需要检查群内权限
+		if !isAppManagerUid {
+			// 检查操作人是否为群成员
+			if opMember == nil {
+				return nil, errs.ErrNoPermission.Wrap("opUserID no in group")
+			}
+
+			// 根据操作人的角色级别判断是否有权限踢人
+			switch opMember.RoleLevel {
+			case constant.GroupOwner:
+				// 群主拥有踢人权限，无需额外检查
+			case constant.GroupAdmin:
+				// 群管理员不能踢群主或其他管理员
+				if member.RoleLevel == constant.GroupOwner || member.RoleLevel == constant.GroupAdmin {
+					return nil, errs.ErrNoPermission.Wrap("group admins cannot remove the group owner and other admins")
+				}
+			case constant.GroupOrdinaryUsers:
+				// 普通成员没有踢人权限
+				return nil, errs.ErrNoPermission.Wrap("opUserID no permission")
+			default:
+				// 未知角色级别，无权限
+				return nil, errs.ErrNoPermission.Wrap("opUserID roleLevel unknown")
+			}
+		}
+	}
+	// 获取群成员总数
+	num, err := s.db.FindGroupMemberNum(ctx, req.GroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 获取群主的用户ID列表
+	ownerUserIDs, err := s.db.GetGroupRoleLevelMemberIDs(ctx, req.GroupID, constant.GroupOwner)
+	if err != nil {
+		return nil, err
+	}
+
+	// 取第一个群主ID（通常群只有一个群主）
+	var ownerUserID string
+	if len(ownerUserIDs) > 0 {
+		ownerUserID = ownerUserIDs[0]
+	}
+
+	// 从数据库中删除被踢的群成员
+	if err := s.db.DeleteGroupMember(ctx, group.GroupID, req.KickedUserIDs); err != nil {
+		return nil, err
+	}
+
+	// 构建成员被踢的通知信息
+	tips := &sdkws.MemberKickedTips{
+		Group: &sdkws.GroupInfo{
+			GroupID:                group.GroupID,
+			GroupName:              group.GroupName,
+			Notification:           group.Notification,
+			Introduction:           group.Introduction,
+			FaceURL:                group.FaceURL,
+			OwnerUserID:            ownerUserID,
+			CreateTime:             group.CreateTime.UnixMilli(),
+			MemberCount:            num,
+			Ex:                     group.Ex,
+			Status:                 group.Status,
+			CreatorUserID:          group.CreatorUserID,
+			GroupType:              group.GroupType,
+			NeedVerification:       group.NeedVerification,
+			LookMemberInfo:         group.LookMemberInfo,
+			ApplyMemberFriend:      group.ApplyMemberFriend,
+			NotificationUpdateTime: group.NotificationUpdateTime.UnixMilli(),
+			NotificationUserID:     group.NotificationUserID,
+		},
+		KickedUserList: []*sdkws.GroupMemberFullInfo{},
+	}
+
+	// 设置操作人的信息到通知中
+	if opMember, ok := memberMap[opUserID]; ok {
+		tips.OpUser = convert.Db2PbGroupMember(opMember)
+	}
+
+	// 添加被踢用户的信息到通知中
+	for _, userID := range req.KickedUserIDs {
+		tips.KickedUserList = append(tips.KickedUserList, convert.Db2PbGroupMember(memberMap[userID]))
+	}
+
+	// 发送成员被踢的通知
+	s.Notification.MemberKickedNotification(ctx, tips)
+
+	// 删除被踢成员并更新会话序列号
+	if err := s.deleteMemberAndSetConversationSeq(ctx, req.GroupID, req.KickedUserIDs); err != nil {
+		return nil, err
+	}
+
+	// 返回成功响应
 	return resp, nil
 }
 
