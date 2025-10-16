@@ -547,7 +547,6 @@ func (g *GroupNotificationSender) MemberKickedNotification(ctx context.Context, 
 	defer log.ZDebug(ctx, "return")
 	defer func() {
 		if err != nil {
-			s
 			log.ZError(ctx, utils.GetFuncName(1)+" failed", err)
 		}
 	}()
