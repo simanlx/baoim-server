@@ -216,6 +216,7 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/get_group_users_req_application_list", g.GetGroupUsersReqApplicationList)
 		groupRouterGroup.POST("/get_groups_info", g.GetGroupsInfo)
 		groupRouterGroup.POST("/kick_group", g.KickGroupMember)
+		groupRouterGroup.POST("/kick_room", g.KickRoomMember) //踢出聊天室成员
 		groupRouterGroup.POST("/get_group_members_info", g.GetGroupMembersInfo)
 		groupRouterGroup.POST("/get_group_member_list", g.GetGroupMemberList)
 		groupRouterGroup.POST("/invite_user_to_group", g.InviteUserToGroup)
@@ -224,6 +225,8 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/dismiss_room", g.DismissRoom)   // 解散聊天室
 
 		groupRouterGroup.POST("/mute_group_member", g.MuteGroupMember)
+		groupRouterGroup.POST("/mute_room_member", g.MuteRoomMember)              ///聊天室成员禁言
+		groupRouterGroup.POST("/cancel_mute_room_member", g.CancelMuteRoomMember) //聊天室成员取消禁言
 		groupRouterGroup.POST("/cancel_mute_group_member", g.CancelMuteGroupMember)
 		groupRouterGroup.POST("/mute_group", g.MuteGroup)
 		groupRouterGroup.POST("/cancel_mute_group", g.CancelMuteGroup)

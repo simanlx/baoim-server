@@ -926,7 +926,6 @@ func (s *groupServer) KickRoomMember(ctx context.Context, req *pbgroup.KickGroup
 	if err != nil {
 		return nil, err
 	}
-
 	// 取第一个群主ID（通常群只有一个群主）
 	var ownerUserID string
 	if len(ownerUserIDs) > 0 {
@@ -937,6 +936,9 @@ func (s *groupServer) KickRoomMember(ctx context.Context, req *pbgroup.KickGroup
 	if err := s.db.DeleteGroupMember(ctx, group.GroupID, req.KickedUserIDs); err != nil {
 		return nil, err
 	}
+
+	///在数据库中删除 被踢用户的聊天室信息  不做错无处理
+	s.db.KickRoomList(ctx, group.GroupID, memberMap[req.KickedUserIDs[0]].UserID, memberMap[req.KickedUserIDs[0]].FaceURL)
 
 	// 构建成员被踢的通知信息
 	tips := &sdkws.MemberKickedTips{
@@ -1880,6 +1882,63 @@ func (s *groupServer) MuteGroupMember(ctx context.Context, req *pbgroup.MuteGrou
 	return resp, nil
 }
 
+// MuteGroupMember 禁言聊天室成员的方法，接收上下文和禁言请求，返回响应和错误
+func (s *groupServer) MuteRoomMember(ctx context.Context, req *pbgroup.MuteGroupMemberReq) (*pbgroup.MuteGroupMemberResp, error) {
+	// 初始化禁言响应对象
+	resp := &pbgroup.MuteGroupMemberResp{}
+
+	// 从数据库中获取要禁言的群成员信息
+	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.UserID)
+	if err != nil {
+		return nil, err // 获取成员信息失败时返回错误
+	}
+
+	// 填充群成员的详细信息（可能包括额外的关联数据）
+	if err := s.PopulateGroupMember(ctx, member); err != nil {
+		return nil, err // 填充信息失败时返回错误
+	}
+
+	// 检查操作人是否为应用管理员（非应用管理员需要进一步权限检查）
+	if !authverify.IsAppManagerUid(ctx, s.config) {
+		// 获取操作人的群成员信息
+		opMember, err := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
+		if err != nil {
+			return nil, err // 获取操作人信息失败时返回错误
+		}
+
+		// 根据被禁言成员的角色级别进行权限校验
+		switch member.RoleLevel {
+		case constant.GroupOwner:
+			// 群主不能被禁言，返回无权限错误
+			return nil, errs.ErrNoPermission.Wrap("set group owner mute")
+		case constant.GroupAdmin:
+			// 只有群主可以禁言管理员
+			if opMember.RoleLevel != constant.GroupOwner {
+				return nil, errs.ErrNoPermission.Wrap("set group admin mute")
+			}
+		case constant.GroupOrdinaryUsers:
+			// 只有群主或管理员可以禁言普通成员
+			if !(opMember.RoleLevel == constant.GroupAdmin || opMember.RoleLevel == constant.GroupOwner) {
+				return nil, errs.ErrNoPermission.Wrap("set group ordinary users mute")
+			}
+		}
+	}
+
+	// 计算禁言结束时间（当前时间 + 请求的禁言秒数），并生成更新数据
+	data := UpdateGroupMemberMutedTimeMap(time.Now().Add(time.Second * time.Duration(req.MutedSeconds)))
+
+	// 更新数据库中该成员的禁言时间
+	if err := s.db.UpdateGroupMember(ctx, member.GroupID, member.UserID, data); err != nil {
+		return nil, err // 更新禁言时间失败时返回错误
+	}
+
+	// 发送群成员被禁言的通知
+	s.Notification.RoomMemberMutedNotification(ctx, req.GroupID, req.UserID, req.MutedSeconds)
+
+	// 返回禁言成功的响应
+	return resp, nil
+}
+
 func (s *groupServer) CancelMuteGroupMember(ctx context.Context, req *pbgroup.CancelMuteGroupMemberReq) (*pbgroup.CancelMuteGroupMemberResp, error) {
 	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.UserID)
 	if err != nil {
@@ -1914,6 +1973,75 @@ func (s *groupServer) CancelMuteGroupMember(ctx context.Context, req *pbgroup.Ca
 	return &pbgroup.CancelMuteGroupMemberResp{}, nil
 }
 
+// CancelMuteGroupMember 取消聊天室成员禁言的核心接口
+// ctx: 上下文对象，用于传递请求元信息、超时控制等
+// req: 取消禁言请求参数，包含 GroupID（群ID）和 UserID（被取消禁言的用户ID）
+// 返回值：取消禁言的响应（无业务数据）和错误信息
+func (s *groupServer) CancelMuteRoomMember(ctx context.Context, req *pbgroup.CancelMuteGroupMemberReq) (*pbgroup.CancelMuteGroupMemberResp, error) {
+	// 从数据库查询目标群成员（被取消禁言的用户）的基础信息
+	// req.GroupID：目标群的唯一标识
+	// req.UserID：被取消禁言的用户唯一标识
+	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.UserID)
+	// 若查询数据库失败（如网络错误、数据不存在），直接返回错误
+	if err != nil {
+		return nil, err
+	}
+
+	// 补充目标群成员的完整信息（如角色、权限等基础查询未返回的字段）
+	if err := s.PopulateGroupMember(ctx, member); err != nil {
+		return nil, err
+	}
+
+	// 权限校验：判断当前操作人是否为「应用管理员」（超管权限，跳过后续群内角色校验）
+	// IsAppManagerUid：检查操作人UID是否在应用管理员名单中
+	// s.config：服务配置，存储应用管理员信息等
+	if !authverify.IsAppManagerUid(ctx, s.config) {
+		// 非应用管理员，需查询「操作人」在当前群内的成员信息
+		// mcontext.GetOpUserID(ctx)：从上下文获取操作人的用户ID
+		opMember, err := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
+		// 若查询操作人信息失败，返回错误
+		if err != nil {
+			return nil, err
+		}
+
+		// 根据「被取消禁言用户」的群内角色，判断操作人是否有权限
+		switch member.RoleLevel {
+		//  case 1：被取消禁言的是「群主」
+		case constant.GroupOwner:
+			// 群主不可被取消禁言（逻辑上群主默认无禁言状态，或不允许操作群主），返回无权限错误
+			return nil, errs.ErrNoPermission.Wrap("set group owner mute")
+
+		//  case 2：被取消禁言的是「群管理员」
+		case constant.GroupAdmin:
+			// 仅群主有权取消群管理员的禁言，若操作人不是群主，返回无权限错误
+			if opMember.RoleLevel != constant.GroupOwner {
+				return nil, errs.ErrNoPermission.Wrap("set group admin mute")
+			}
+
+		//  case 3：被取消禁言的是「普通群成员」
+		case constant.GroupOrdinaryUsers:
+			// 仅群主或群管理员有权取消普通成员的禁言，否则返回无权限错误
+			if !(opMember.RoleLevel == constant.GroupAdmin || opMember.RoleLevel == constant.GroupOwner) {
+				return nil, errs.ErrNoPermission.Wrap("set group ordinary users mute")
+			}
+		}
+	}
+
+	// 构造更新数据：将群成员的禁言时间设置为「Unix时间原点」（表示取消禁言）
+	// time.Unix(0, 0)：对应时间 1970-01-01 00:00:00 UTC，代表无禁言状态
+	data := UpdateGroupMemberMutedTimeMap(time.Unix(0, 0))
+
+	// 调用数据库接口，更新目标群成员的禁言时间（执行取消禁言操作）
+	if err := s.db.UpdateGroupMember(ctx, member.GroupID, member.UserID, data); err != nil {
+		return nil, err
+	}
+
+	// 发送「取消群成员禁言」的通知（如推送消息给群内成员或被取消禁言的用户）
+	s.Notification.GroupMemberCancelMutedNotification(ctx, req.GroupID, req.UserID)
+
+	// 取消禁言操作成功，返回空响应（无额外业务数据需返回）
+	return &pbgroup.CancelMuteGroupMemberResp{}, nil
+}
 func (s *groupServer) MuteGroup(ctx context.Context, req *pbgroup.MuteGroupReq) (*pbgroup.MuteGroupResp, error) {
 	resp := &pbgroup.MuteGroupResp{}
 	if err := s.CheckGroupAdmin(ctx, req.GroupID); err != nil {
