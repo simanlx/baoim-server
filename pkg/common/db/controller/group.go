@@ -15,6 +15,8 @@
 package controller
 
 import (
+	pbgroup "baoim/protocol/group"
+	"baoim/protocol/sdkws"
 	"context"
 	"time"
 
@@ -31,6 +33,22 @@ import (
 type GroupDatabase interface {
 	// CreateGroup creates new groups along with their members.
 	CreateGroup(ctx context.Context, groups []*relationtb.GroupModel, groupMembers []*relationtb.GroupMemberModel) error
+
+	//把聊天室 缓存到房间列表
+	AddRoomList(ctx context.Context, room *sdkws.RoomInfo) error
+	//获取聊天室列表 接口
+	GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error)
+
+	//加入房间更新
+	JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error)
+
+	//退出聊天室
+	QuitRoomList(ctx context.Context, groupID string, uid string, img string) error
+	// 解散聊天室
+	DismissRoom(ctx context.Context, roomID string) error
+	//从redis中回去当前聊天室信息
+	GetRoomInfo(ctx context.Context, roomID string) (*sdkws.RoomInfo, error)
+
 	// TakeGroup retrieves a single group by its ID.
 	TakeGroup(ctx context.Context, groupID string) (group *relationtb.GroupModel, err error)
 	// FindGroup retrieves multiple groups by their IDs.
@@ -156,41 +174,76 @@ func (g *groupDatabase) FindGroupsOwner(ctx context.Context, groupIDs []string) 
 func (g *groupDatabase) GetGroupRoleLevelMemberIDs(ctx context.Context, groupID string, roleLevel int32) ([]string, error) {
 	return g.cache.GetGroupRoleLevelMemberIDs(ctx, groupID, roleLevel)
 }
-
 func (g *groupDatabase) CreateGroup(ctx context.Context, groups []*relationtb.GroupModel, groupMembers []*relationtb.GroupMemberModel) error {
+	// 如果 groups 和 groupMembers 都为空，则直接返回 nil，无需创建
 	if len(groups)+len(groupMembers) == 0 {
 		return nil
 	}
+	// 使用事务保证原子性
 	return g.ctxTx.Transaction(ctx, func(ctx context.Context) error {
+		// 创建新的缓存对象
 		c := g.cache.NewCache()
+		// 如果有群组需要创建
 		if len(groups) > 0 {
+			// 调用 groupDB 的 Create 方法创建群组
 			if err := g.groupDB.Create(ctx, groups); err != nil {
-				return err
+				return err // 创建失败则返回错误
 			}
+			// 对每个群组进行缓存删除操作
 			for _, group := range groups {
-				c = c.DelGroupsInfo(group.GroupID).
-					DelGroupMembersHash(group.GroupID).
-					DelGroupMembersHash(group.GroupID).
-					DelGroupsMemberNum(group.GroupID).
-					DelGroupMemberIDs(group.GroupID).
-					DelGroupAllRoleLevel(group.GroupID)
+				c = c.DelGroupsInfo(group.GroupID). // 删除群组信息缓存
+									DelGroupMembersHash(group.GroupID). // 删除群组成员哈希缓存
+									DelGroupMembersHash(group.GroupID). // 再次删除群组成员哈希缓存（可能是冗余）
+									DelGroupsMemberNum(group.GroupID).  // 删除群组成员数量缓存
+									DelGroupMemberIDs(group.GroupID).   // 删除群组成员ID列表缓存
+									DelGroupAllRoleLevel(group.GroupID) // 删除群组所有成员角色等级缓存
 			}
 		}
+		// 如果有群组成员需要创建
 		if len(groupMembers) > 0 {
+			// 调用 groupMemberDB 的 Create 方法创建群组成员
 			if err := g.groupMemberDB.Create(ctx, groupMembers); err != nil {
-				return err
+				return err // 创建失败则返回错误
 			}
+			// 对每个群组成员进行缓存删除操作
 			for _, groupMember := range groupMembers {
-				c = c.DelGroupMembersHash(groupMember.GroupID).
-					DelGroupsMemberNum(groupMember.GroupID).
-					DelGroupMemberIDs(groupMember.GroupID).
-					DelJoinedGroupID(groupMember.UserID).
-					DelGroupMembersInfo(groupMember.GroupID, groupMember.UserID).
-					DelGroupAllRoleLevel(groupMember.GroupID)
+				c = c.DelGroupMembersHash(groupMember.GroupID). // 删除群组成员哈希缓存
+										DelGroupsMemberNum(groupMember.GroupID).                      // 删除群组成员数量缓存
+										DelGroupMemberIDs(groupMember.GroupID).                       // 删除群组成员ID列表缓存
+										DelJoinedGroupID(groupMember.UserID).                         // 删除用户已加入群组ID缓存
+										DelGroupMembersInfo(groupMember.GroupID, groupMember.UserID). // 删除群组成员信息缓存
+										DelGroupAllRoleLevel(groupMember.GroupID)                     // 删除群组所有成员角色等级缓存
 			}
 		}
+		// 执行所有缓存删除操作
 		return c.ExecDel(ctx, true)
 	})
+}
+
+func (g *groupDatabase) AddRoomList(ctx context.Context, room *sdkws.RoomInfo) error {
+	return g.cache.AddRoomCache(ctx, room)
+}
+
+func (g *groupDatabase) JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error) {
+	return g.cache.UpdateRoomCache(ctx, roomID, uid, img)
+}
+
+// 退出聊天室
+func (g *groupDatabase) QuitRoomList(ctx context.Context, roomID string, uid string, img string) error {
+	return g.cache.RemoveRoomCache(ctx, roomID, uid, img)
+}
+
+// 解散聊天室
+func (g *groupDatabase) DismissRoom(ctx context.Context, roomID string) error {
+	return g.cache.DismissRoomCache(ctx, roomID)
+}
+func (g *groupDatabase) GetRoomInfo(ctx context.Context, roomID string) (*sdkws.RoomInfo, error) {
+	return g.cache.GetRoomInfoCache(ctx, roomID)
+}
+
+// /获取聊天室列表
+func (g *groupDatabase) GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error) {
+	return g.cache.GetRoomListCache(ctx, page, pageSize)
 }
 
 func (g *groupDatabase) FindGroupMemberUserID(ctx context.Context, groupID string) ([]string, error) {

@@ -367,6 +367,15 @@ func (c *conversationServer) CreateGroupChatConversations(ctx context.Context, r
 	return &pbconversation.CreateGroupChatConversationsResp{}, nil
 }
 
+// 增加 聊天室 创建会话列表  测试
+func (c *conversationServer) RoomCreateGroupChatConversations(ctx context.Context, req *pbconversation.CreateGroupChatConversationsReq) (*pbconversation.CreateGroupChatConversationsResp, error) {
+	err := c.conversationDatabase.RoomCreateGroupChatConversation(ctx, req.GroupID, req.UserIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.CreateGroupChatConversationsResp{}, nil
+}
+
 func (c *conversationServer) SetConversationMaxSeq(ctx context.Context, req *pbconversation.SetConversationMaxSeqReq) (*pbconversation.SetConversationMaxSeqResp, error) {
 	if err := c.conversationDatabase.UpdateUsersConversationField(ctx, req.OwnerUserID, req.ConversationID,
 		map[string]any{"max_seq": req.MaxSeq}); err != nil {

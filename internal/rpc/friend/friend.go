@@ -331,10 +331,15 @@ func (s *friendServer) GetPaginationFriendsApplyFrom(ctx context.Context, req *p
 	return resp, nil
 }
 
-// ok.
+// IsFriend 方法用于检查两个用户是否互为好友。
+// 它属于 friendServer 结构体，实现了 pbfriend 服务中的 IsFriend 接口。
 func (s *friendServer) IsFriend(ctx context.Context, req *pbfriend.IsFriendReq) (resp *pbfriend.IsFriendResp, err error) {
+	// defer 延迟执行日志记录，记录函数返回时的信息（函数名+Return）。
 	defer log.ZInfo(ctx, utils.GetFuncName()+" Return")
+	// 创建一个响应对象 resp，用于返回结果。
 	resp = &pbfriend.IsFriendResp{}
+	// 调用 friendDatabase 的 CheckIn 方法，检查 UserID1 是否在 UserID2 的好友列表中，反之亦然。
+	// 并将结果分别赋值给 resp.InUser1Friends 和 resp.InUser2Friends，如果有错误则赋值给 err。
 	resp.InUser1Friends, resp.InUser2Friends, err = s.friendDatabase.CheckIn(ctx, req.UserID1, req.UserID2)
 	if err != nil {
 		return nil, err

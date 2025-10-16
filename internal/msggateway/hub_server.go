@@ -163,6 +163,15 @@ func (s *Server) SuperGroupOnlineBatchPushOneMsg(ctx context.Context, req *msgga
 					resp = append(resp, userPlatform)
 				} else {
 					if _, ok := s.pushTerminal[client.PlatformID]; ok {
+
+						// 信令通知且在后台时，特殊处理
+						//if req.MsgData.ContentType == constant.SignalingNotification && client.IsBackground {
+						//	println("在后台  信令")
+						//	userPlatform.ResultCode = -2
+						//	// results.OnlinePush = false
+						//	resp = append(resp, userPlatform)
+						//}else{
+
 						results.OnlinePush = true
 						resp = append(resp, userPlatform)
 					}

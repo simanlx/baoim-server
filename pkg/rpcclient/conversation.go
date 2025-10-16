@@ -69,6 +69,12 @@ func (c *ConversationRpcClient) SingleChatFirstCreateConversation(ctx context.Co
 	return err
 }
 
+// /增加 聊天室首次创建  会话
+func (c *ConversationRpcClient) RoomGroupChatFirstCreateConversation(ctx context.Context, groupID string, userIDs []string) error {
+	_, err := c.Client.RoomCreateGroupChatConversations(ctx, &pbconversation.CreateGroupChatConversationsReq{UserIDs: userIDs, GroupID: groupID})
+	return err
+}
+
 func (c *ConversationRpcClient) GroupChatFirstCreateConversation(ctx context.Context, groupID string, userIDs []string) error {
 	_, err := c.Client.CreateGroupChatConversations(ctx, &pbconversation.CreateGroupChatConversationsReq{UserIDs: userIDs, GroupID: groupID})
 	return err

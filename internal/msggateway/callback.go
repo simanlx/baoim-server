@@ -26,6 +26,9 @@ import (
 )
 
 func CallbackUserOnline(ctx context.Context, globalConfig *config.GlobalConfig, userID string, platformID int, isAppBackground bool, connID string) error {
+
+	println("用户上线了", userID)
+
 	if !globalConfig.Callback.CallbackUserOnline.Enable {
 		return nil
 	}
@@ -51,6 +54,8 @@ func CallbackUserOnline(ctx context.Context, globalConfig *config.GlobalConfig, 
 }
 
 func CallbackUserOffline(ctx context.Context, globalConfig *config.GlobalConfig, userID string, platformID int, connID string) error {
+	println("用户离线了", userID)
+
 	if !globalConfig.Callback.CallbackUserOffline.Enable {
 		return nil
 	}

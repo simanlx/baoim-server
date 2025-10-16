@@ -15,7 +15,6 @@
 package msggateway
 
 import (
-	"BaoIM-Server/pkg/msgprocessor"
 	"baoim/protocol/rtc"
 	"context"
 	"sync"
@@ -171,7 +170,7 @@ func (g GrpcHandler) SendMessage(ctx context.Context, data *Req) ([]byte, error)
 }
 
 // /信令消息 实现错误 未实现完成 客户端sdk被邀请者无法正常收到信令消息
-func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]byte, error) {
+func (g GrpcHandler) SendSignalMessage(ctx context.Context, data *Req) ([]byte, error) {
 	signalReq := rtc.SignalReq{}
 	if err := proto.Unmarshal(data.Data, &signalReq); err != nil {
 		return nil, err
@@ -183,21 +182,15 @@ func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]by
 	req := &rtc.SignalMessageAssembleReq{
 		SignalReq: &signalReq,
 	}
-
 	// 调用RTC RPC客户端发送信号消息
-	respPb, err := g.rtcClient.Client.SignalMessageAssemble(context, req)
+	respPb, err := g.rtcClient.Client.SignalMessageAssemble(ctx, req)
 	if err != nil {
 		return nil, errs.Wrap(err, "call rtc SendSignalMessage failed")
 	}
-	signalResp := rtc.SignalResp{}
-	signalResp.Payload = respPb.SignalResp.Payload
 
-	msgData := sdkws.MsgData{}
-	utils.CopyStructFields(&msgData, respPb.MsgData)
-
-	msgData.Options = config.GetOptionsByNotification(config.NotificationConf{
+	respPb.MsgData.Options = config.GetOptionsByNotification(config.NotificationConf{
 		IsSendMsg:        false,
-		ReliabilityLevel: 1,
+		ReliabilityLevel: 2,
 		UnreadCount:      false,
 		//OfflinePush: config.POfflinePush{
 		//	true,
@@ -206,29 +199,44 @@ func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]by
 		//	"",
 		//},
 	})
-	//msgData.Content = data.Data
 
-	rpcPushMsg := push.PushMsgReq{MsgData: &msgData, ConversationID: msgprocessor.GetConversationIDByMsg(&msgData)}
-	_, err = g.pushClient.Client.PushMsg(context, &rpcPushMsg)
-	if err != nil {
-		println("推动错误", msgData.SendID, err.Error())
-	}
-	println("ConversationID:", msgprocessor.GetConversationIDByMsg(&msgData))
-	//sendMsgReq.MsgData.Content = []byte("信令消息")
-	//消息rpc msg未实现 信令相关
-	//_, err = g.msgRpcClient.SendMsg(context, &msg.SendMsgReq{
-	//	MsgData: &msgData,
-	//})
+	req1 := msg.SendMsgReq{MsgData: respPb.MsgData}
+	_, err = g.msgRpcClient.SendMsg(ctx, &req1)
 	if err != nil {
 		return nil, err
 	}
+	//rpcPushMsg := push.PushMsgReq{MsgData: respPb.MsgData, ConversationID: msgprocessor.GetConversationIDByMsg(respPb.MsgData)}
+	//_, err = g.pushClient.Client.PushMsg(ctx, &rpcPushMsg)
+	//if err != nil {
+	//	println("推动错误", respPb.MsgData.SendID, err.Error())
+	//}
+	//println("ConversationID:", msgprocessor.GetConversationIDByMsg(respPb.MsgData))
 
-	c, err := proto.Marshal(respPb)
+	c, err := proto.Marshal(respPb.SignalResp)
 	if err != nil {
 		return nil, errs.Wrap(err, "error marshaling response")
 	}
 
 	return c, nil
+
+	//msgData.Options = config.GetOptionsByNotification(config.NotificationConf{
+	//	IsSendMsg:        false,
+	//	ReliabilityLevel: 1,
+	//	UnreadCount:      false,
+	//	//OfflinePush: config.POfflinePush{
+	//	//	true,
+	//	//	"dddd",
+	//	//	"",
+	//	//	"",
+	//	//},
+	//})
+
+	//_, err = g.msgRpcClient.MsgVerification(ctx, &msg.SendMsgReq{MsgData: respPb.MsgData})
+	//if err != nil {
+	//	println(err.Error())
+	//	return nil, err
+	//}
+
 }
 
 //func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]byte, error) {
@@ -244,6 +252,7 @@ func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]by
 //}
 
 func (g GrpcHandler) PullMessageBySeqList(context context.Context, data *Req) ([]byte, error) {
+
 	req := sdkws.PullMessageBySeqsReq{}
 	if err := proto.Unmarshal(data.Data, &req); err != nil {
 		return nil, errs.Wrap(err, "error unmarshaling request")

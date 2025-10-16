@@ -31,13 +31,16 @@ func isMessageHasReadEnabled(msgData *sdkws.MsgData, config *config.GlobalConfig
 		} else {
 			return false
 		}
+
 	case msgData.ContentType == constant.HasReadReceipt && msgData.SessionType == constant.SuperGroupChatType:
 		if config.GroupMessageHasReadReceiptEnable {
 			return true
 		} else {
 			return false
 		}
+
 	}
+
 	return true
 }
 

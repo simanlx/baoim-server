@@ -17,8 +17,12 @@ package cache
 import (
 	"BaoIM-Server/pkg/common/cachekey"
 	"BaoIM-Server/pkg/common/config"
+	pbgroup "baoim/protocol/group"
+	"baoim/protocol/sdkws"
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
@@ -80,6 +84,33 @@ type GroupCache interface {
 	GetGroupRolesLevelMemberInfo(ctx context.Context, groupID string, roleLevels []int32) ([]*relationtb.GroupMemberModel, error)
 	GetGroupMemberNum(ctx context.Context, groupID string) (memberNum int64, err error)
 	DelGroupsMemberNum(groupID ...string) GroupCache
+
+	//创建聊天室接口
+	AddRoomCache(ctx context.Context, room *sdkws.RoomInfo) error
+	//获取聊天室列表接口
+	GetRoomListCache(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error)
+
+	///加入房间
+	UpdateRoomCache(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error)
+	//退出房间
+	RemoveRoomCache(ctx context.Context, roomID string, uid string, img string) error
+	//更新房间积分
+	UpdateRoomScore(ctx context.Context, roomID string, score int64) error
+
+	//获取当前房间缓存信息
+	GetRoomInfoCache(ctx context.Context, roomID string) (*sdkws.RoomInfo, error)
+	// 原子操作：解散房间，清除redis缓存、从积分集合移除
+	DismissRoomCache(ctx context.Context, roomID string) error
+	// 原子操作：剔出房间成员，将房间位置替换为"0"（禁止站位）
+	KickRoomMemberCache(ctx context.Context, roomID string, uid string) error
+	// 原子操作：关闭指定位置，将指定位置替换为"0"（禁止站位）
+	CloseRoomSeatCache(ctx context.Context, roomID string, idx int) error
+	// 原子操作：打开房间，将指定位置的"0"替换为""（允许站位）
+	OpenRoomSeatCache(ctx context.Context, roomID string, idx int) error
+	// 原子操作：打开房间，将所有"0"位置替换为""（允许站位）
+	OpenRoomAllCache(ctx context.Context, roomID string) error
+	// 原子操作：更换房间成员位置（支持头像同步移动）
+	MoveRoomMemberCache(ctx context.Context, roomID string, fromIdx int, toIdx int) error
 }
 
 type GroupCacheRedis struct {
@@ -90,6 +121,7 @@ type GroupCacheRedis struct {
 	expireTime     time.Duration
 	rcClient       *rockscache.Client
 	groupHash      GroupHash
+	rdb            redis.UniversalClient ////增加redis直接调用  用于房间列表
 }
 
 func NewGroupCacheRedis(
@@ -111,10 +143,13 @@ func NewGroupCacheRedis(
 		groupDB: groupDB, groupMemberDB: groupMemberDB, groupRequestDB: groupRequestDB,
 		groupHash: hashCode,
 		metaCache: mc,
+		rdb:       rdb, ////增加redis直接调用  用于房间列表
+
 	}
 }
 
 func (g *GroupCacheRedis) NewCache() GroupCache {
+
 	return &GroupCacheRedis{
 		rcClient:       g.rcClient,
 		expireTime:     g.expireTime,
@@ -123,6 +158,573 @@ func (g *GroupCacheRedis) NewCache() GroupCache {
 		groupRequestDB: g.groupRequestDB,
 		metaCache:      g.Copy(),
 	}
+}
+
+// 房间信息哈希 key: room:{roomID}
+func (g *GroupCacheRedis) AddRoomCache(ctx context.Context, room *sdkws.RoomInfo) error {
+	key := fmt.Sprintf("ROOM:%s", room.RoomID)
+	ms, err := json.Marshal(room.Ms)
+	fields := map[string]interface{}{
+		"id":   room.RoomID,
+		"uid":  room.Uid,
+		"name": room.Name,
+		"img":  room.Img,
+		"ms":   ms,
+		//"imgs":"",
+		"num":   0,
+		"score": room.Score,
+	}
+	// 保存聊天室哈希
+	err = g.rdb.HSet(ctx, key, fields).Err()
+	if err != nil {
+		return err
+	}
+
+	// 房间ID加入积分排序集合
+	err = g.rdb.ZAdd(ctx, "ROOM_LIST:", redis.Z{
+		Score:  float64(room.Score),
+		Member: room.RoomID,
+	}).Err()
+	return err
+}
+
+// 原子操作：解散房间，清除redis缓存、从积分集合移除
+func (g *GroupCacheRedis) DismissRoomCache(ctx context.Context, roomID string) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	// 删除房间哈希
+	err := g.rdb.Del(ctx, key).Err()
+	if err != nil {
+		return err
+	}
+	// 从积分排序集合移除
+	err = g.rdb.ZRem(ctx, "ROOM_LIST:", roomID).Err()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// 获取当前房间信息（包括成员、头像等）
+func (g *GroupCacheRedis) GetRoomInfoCache(ctx context.Context, roomID string) (*sdkws.RoomInfo, error) {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	// 获取哈希所有字段
+	data, err := g.rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("room not found")
+	}
+
+	//num, _ := strconv.Atoi(data["mum"])
+	score, _ := strconv.ParseInt(data["score"], 10, 64)
+	num, _ := strconv.ParseInt(fmt.Sprintf("%v", data["num"]), 10, 64)
+	// 解析 ms 字段
+	var ms []string
+	if msJson, ok := data["ms"]; ok && msJson != "" {
+		_ = json.Unmarshal([]byte(msJson), &ms)
+	}
+	// 解析 imgs 字段
+	var imgs []string
+	if imgsJson, ok := data["imgs"]; ok && imgsJson != "" {
+		_ = json.Unmarshal([]byte(imgsJson), &imgs)
+	}
+
+	info := &sdkws.RoomInfo{
+		RoomID: data["id"],
+		Uid:    data["uid"],
+		Name:   data["name"],
+		Img:    data["img"],
+		Ms:     ms,
+		Imgs:   imgs,
+		Num:    num,
+		Score:  score,
+	}
+	return info, nil
+}
+
+// 原子操作：加入房间并分配位置（并发安全）
+func (g *GroupCacheRedis) UpdateRoomCache(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error) {
+
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local data = redis.call("HGETALL", KEYS[1])
+local ms_json = nil
+local imgs_json = nil
+for i=1,#data,2 do
+  if data[i] == "ms" then ms_json = data[i+1] end
+  if data[i] == "imgs" then imgs_json = data[i+1] end
+end
+local ms = {}
+if ms_json then ms = cjson.decode(ms_json) end
+local idx = nil
+for i=1,8 do
+  if ms[i] == "" or ms[i] == nil then
+    ms[i] = ARGV[1]
+    idx = i
+    break
+  end
+end
+if not idx then
+  return {err="No empty seat"}
+end
+local imgs = {}
+if imgs_json then imgs = cjson.decode(imgs_json) end
+table.insert(imgs, 1, ARGV[2])
+if #imgs > 5 then
+  while #imgs > 5 do table.remove(imgs) end
+end
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+redis.call("HSET", KEYS[1], "imgs", cjson.encode(imgs))
+
+local id = redis.call("HGET", KEYS[1], "id")
+local uid = redis.call("HGET", KEYS[1], "uid")
+local name = redis.call("HGET", KEYS[1], "name")
+local img = redis.call("HGET", KEYS[1], "img")
+-- num字段自增
+local num = redis.call("HINCRBY", KEYS[1], "num", 1)
+
+local score = redis.call("HGET", KEYS[1], "score")
+
+return cjson.encode({id=id, uid=uid,name=name, img=img, uid=uid, score=score, ms=ms, num=num, imgs=imgs, idx=idx})
+`
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, uid, img).Result()
+
+	resp := sdkws.RoomInfo{}
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return nil, err
+		}
+		// 处理 room not found 或 No empty seat 错误
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return nil, fmt.Errorf(errStr)
+		}
+
+		//num, _ := strconv.Atoi(result["mum"].(string))
+		score, _ := strconv.Atoi(result["score"].(string))
+		num, _ := strconv.ParseInt(fmt.Sprintf("%v", result["num"]), 10, 64)
+
+		var ms []string
+		if msArr, ok := result["ms"].([]interface{}); ok {
+			for _, v := range msArr {
+				ms = append(ms, fmt.Sprintf("%v", v))
+			}
+		}
+		var imgs []string
+		if imgsArr, ok := result["imgs"].([]interface{}); ok {
+			for _, v := range imgsArr {
+				imgs = append(imgs, fmt.Sprintf("%v", v))
+			}
+		}
+		resp = sdkws.RoomInfo{
+			RoomID: result["id"].(string),
+			Uid:    result["uid"].(string),
+			Name:   result["name"].(string),
+			Img:    result["img"].(string),
+			Ms:     ms,
+			Imgs:   imgs,
+			Num:    num,
+			Score:  int64(score),
+		}
+
+	} else {
+		return nil, fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return &resp, nil
+}
+
+// 原子操作：退出房间，清除当前uid及其头像URL（并发安全）
+func (g *GroupCacheRedis) RemoveRoomCache(ctx context.Context, roomID string, uid string, img string) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local data = redis.call("HGETALL", KEYS[1])
+local ms_json = nil
+local imgs_json = nil
+for i=1,#data,2 do
+  if data[i] == "ms" then ms_json = data[i+1] end
+  if data[i] == "imgs" then imgs_json = data[i+1] end
+end
+local ms = {}
+if ms_json then ms = cjson.decode(ms_json) end
+local removed = false
+for i=1,8 do
+  if ms[i] == ARGV[1] then
+    ms[i] = ""
+    removed = true
+    break
+  end
+end
+if not removed then
+  return {err="uid not in room"}
+end
+local imgs = {}
+if imgs_json then imgs = cjson.decode(imgs_json) end
+local img_url = ARGV[2]
+for i=#imgs,1,-1 do
+  if imgs[i] == img_url then
+    table.remove(imgs, i)
+    break
+  end
+end
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+redis.call("HSET", KEYS[1], "imgs", cjson.encode(imgs))
+return cjson.encode({ms = ms, imgs = imgs})
+`
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, uid, img).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		// 处理 room not found 或 uid not in room 错误
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 原子操作：剔出房间成员，将房间位置替换为"0"，并删除对应头像
+func (g *GroupCacheRedis) KickRoomMemberCache(ctx context.Context, roomID string, uid string) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local ms_json = redis.call("HGET", KEYS[1], "ms")
+local imgs_json = redis.call("HGET", KEYS[1], "imgs")
+local ms = {}
+local imgs = {}
+if ms_json then ms = cjson.decode(ms_json) end
+if imgs_json then imgs = cjson.decode(imgs_json) end
+local found = false
+local img_to_remove = nil
+for i=1,8 do
+  if ms[i] == ARGV[1] then
+    ms[i] = "0"
+    -- 找到对应头像
+    if imgs[i] then
+      img_to_remove = imgs[i]
+    end
+    imgs[i] = nil
+    found = true
+    break
+  end
+end
+if not found then
+  return {err="uid not in room"}
+end
+-- 重新整理imgs，移除空位
+local new_imgs = {}
+for i=1,#imgs do
+  if imgs[i] ~= nil then
+    table.insert(new_imgs, imgs[i])
+  end
+end
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+redis.call("HSET", KEYS[1], "imgs", cjson.encode(new_imgs))
+return cjson.encode({ms = ms, imgs = new_imgs})
+`
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, uid).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 原子操作：打开房间，将指定位置的"0"替换为""（允许站位）
+func (g *GroupCacheRedis) OpenRoomSeatCache(ctx context.Context, roomID string, idx int) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local ms_json = redis.call("HGET", KEYS[1], "ms")
+local ms = {}
+if ms_json then ms = cjson.decode(ms_json) end
+local pos = tonumber(ARGV[1])
+if not pos or pos < 1 or pos > 8 then
+  return {err="invalid index"}
+end
+if ms[pos] == "0" then
+  ms[pos] = ""
+  redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+  return cjson.encode({ms = ms, msg="seat opened"})
+else
+  return {msg="seat not forbidden"}
+end
+`
+	// Lua 下标从1开始，Go下标从0开始，需要+1
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, idx+1).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 原子操作：关闭指定位置，将指定位置替换为"0"（禁止站位）
+func (g *GroupCacheRedis) CloseRoomSeatCache(ctx context.Context, roomID string, idx int) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local ms_json = redis.call("HGET", KEYS[1], "ms")
+local ms = {}
+if ms_json then ms = cjson.decode(ms_json) end
+local pos = tonumber(ARGV[1])
+if not pos or pos < 1 or pos > 8 then
+  return {err="invalid index"}
+end
+ms[pos] = "0"
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+return cjson.encode({ms = ms, msg="seat closed"})
+`
+	// Lua 下标从1开始，Go下标从0开始，需要+1
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, idx+1).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 原子操作：打开房间，将所有"0"位置替换为""（允许站位）
+func (g *GroupCacheRedis) OpenRoomAllCache(ctx context.Context, roomID string) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local ms_json = redis.call("HGET", KEYS[1], "ms")
+local ms = {}
+if ms_json then ms = cjson.decode(ms_json) end
+local changed = false
+for i=1,8 do
+  if ms[i] == "0" then
+    ms[i] = ""
+    changed = true
+  end
+end
+if not changed then
+  return {msg="no forbidden seats"}
+end
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+return cjson.encode({ms = ms})
+`
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 原子操作：更换房间成员位置（支持头像同步移动）
+// fromIdx: 当前成员位置（Go下标，0~7），toIdx: 目标位置（Go下标，0~7）
+func (g *GroupCacheRedis) MoveRoomMemberCache(ctx context.Context, roomID string, fromIdx int, toIdx int) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	luaScript := `
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  return {err="room not found"}
+end
+local ms_json = redis.call("HGET", KEYS[1], "ms")
+local imgs_json = redis.call("HGET", KEYS[1], "imgs")
+local ms = {}
+local imgs = {}
+if ms_json then ms = cjson.decode(ms_json) end
+if imgs_json then imgs = cjson.decode(imgs_json) end
+
+local from_pos = tonumber(ARGV[1])
+local to_pos = tonumber(ARGV[2])
+
+if not from_pos or from_pos < 1 or from_pos > 8 then
+  return {err="invalid from index"}
+end
+if not to_pos or to_pos < 1 or to_pos > 8 then
+  return {err="invalid to index"}
+end
+
+local uid = ms[from_pos]
+if uid == nil or uid == "" or uid == "0" then
+  return {err="no member at from index"}
+end
+if ms[to_pos] ~= "" and ms[to_pos] ~= nil and ms[to_pos] ~= "0" then
+  return {err="target position already occupied"}
+end
+
+-- 移动成员
+ms[from_pos] = ""
+ms[to_pos] = uid
+
+-- 同步移动头像（如有头像则一起移动，否则跳过）
+if imgs[from_pos] ~= nil then
+  imgs[to_pos] = imgs[from_pos]
+  imgs[from_pos] = nil
+end
+
+-- 整理头像数组，移除nil（保持原有顺序和长度）
+local new_imgs = {}
+for i=1,8 do
+  if imgs[i] ~= nil then
+    new_imgs[i] = imgs[i]
+  else
+    new_imgs[i] = ""
+  end
+end
+
+redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
+redis.call("HSET", KEYS[1], "imgs", cjson.encode(new_imgs))
+return cjson.encode({ms = ms, imgs = new_imgs})
+`
+	// Lua 下标从1开始，Go下标从0开始，需要+1
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, fromIdx+1, toIdx+1).Result()
+	if err != nil {
+		return err
+	}
+	result := make(map[string]interface{})
+	if str, ok := res.(string); ok {
+		err := json.Unmarshal([]byte(str), &result)
+		if err != nil {
+			return err
+		}
+		if errStr, ok := result["err"].(string); ok && errStr != "" {
+			return fmt.Errorf(errStr)
+		}
+	} else {
+		return fmt.Errorf("unexpected lua result: %v", res)
+	}
+	return nil
+}
+
+// 获取房间列表，按积分倒序分页
+func (g *GroupCacheRedis) GetRoomListCache(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error) {
+	start := int64((page - 1) * pageSize)
+	end := start + int64(pageSize) - 1
+	// 积分倒序
+	roomIDs, err := g.rdb.ZRevRange(ctx, "ROOM_LIST:", start, end).Result()
+	if err != nil {
+		return nil, err
+	}
+	var rooms []*sdkws.RoomInfo
+	for _, roomID := range roomIDs {
+
+		//println(roomID)
+
+		key := fmt.Sprintf("ROOM:%s", roomID)
+		data, err := g.rdb.HGetAll(ctx, key).Result()
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		//num, _ := strconv.Atoi(data["num"])
+		score, _ := strconv.Atoi(data["score"])
+
+		var arr []string
+		err = json.Unmarshal([]byte(data["ms"]), &arr)
+		var imgs []string
+		if data["img"] != "" {
+			err = json.Unmarshal([]byte(data["imgs"]), &imgs)
+		}
+
+		room := sdkws.RoomInfo{
+			RoomID: data["id"],
+			Uid:    data["uid"],
+			Name:   data["name"],
+			Img:    data["img"],
+			Ms:     arr,
+
+			Imgs:  imgs,
+			Score: int64(score),
+		}
+		rooms = append(rooms, &room)
+	}
+
+	//println(len(rooms))
+	//println(len(rooms[0].RoomID))
+
+	return &pbgroup.GetRoomListResp{Rooms: rooms}, nil
+}
+
+// 更新房间积分（同时更新哈希和有序集合，保证房间列表排序正确）
+func (g *GroupCacheRedis) UpdateRoomScore(ctx context.Context, roomID string, score int64) error {
+	key := fmt.Sprintf("ROOM:%s", roomID)
+	// 1. 更新分数到房间哈希
+	err := g.rdb.HSet(ctx, key, "score", score).Err()
+	if err != nil {
+		return err
+	}
+	// 2. 更新分数到房间列表有序集合
+	err = g.rdb.ZAdd(ctx, "ROOM_LIST:", redis.Z{
+		Score:  float64(score),
+		Member: roomID,
+	}).Err()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (g *GroupCacheRedis) getGroupInfoKey(groupID string) string {

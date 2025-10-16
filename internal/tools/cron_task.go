@@ -58,6 +58,13 @@ func StartTask(config *config.GlobalConfig) error {
 		return errs.Wrap(err, "cron_conversations_destruct_msgs")
 	}
 
+	//回头研究
+	//fmt.Printf("Start msgDestruct cron task, cron config: %s\n", config.MsgDestructTime)
+	//_, err = crontab.AddFunc("* * * * *", cronWrapFunc(config, rdb, "cron_conversations_destruct_msgs", msgTool.ConversationsDestructMsgs))
+	//if err != nil {
+	//	return errs.Wrap(err, "cron_conversations_destruct_msgs")
+	//}
+
 	// start crontab
 	crontab.Start()
 

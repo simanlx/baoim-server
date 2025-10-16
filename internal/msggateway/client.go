@@ -15,13 +15,6 @@
 package msggateway
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"runtime/debug"
-	"sync"
-	"sync/atomic"
-
 	"BaoIM-Server/pkg/msgprocessor"
 	"baoim/protocol/constant"
 	"baoim/protocol/sdkws"
@@ -30,7 +23,13 @@ import (
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"baoim/tools/utils"
+	"context"
+	"errors"
+	"fmt"
 	"google.golang.org/protobuf/proto"
+	"runtime/debug"
+	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -203,14 +202,19 @@ func (c *Client) handleMessage(message []byte) error {
 
 	switch binaryReq.ReqIdentifier {
 	case WSGetNewestSeq:
+
 		resp, messageErr = c.longConnServer.GetSeq(ctx, binaryReq)
 	case WSSendMsg:
+
 		resp, messageErr = c.longConnServer.SendMessage(ctx, binaryReq)
 	case WSSendSignalMsg:
+
 		resp, messageErr = c.longConnServer.SendSignalMessage(ctx, binaryReq)
 	case WSPullMsgBySeqList:
+		//println("这里进来吗?-4", time.Now().Format("2006-01-02 15:04:05.000"))
 		resp, messageErr = c.longConnServer.PullMessageBySeqList(ctx, binaryReq)
 	case WsLogoutMsg:
+
 		resp, messageErr = c.longConnServer.UserLogout(ctx, binaryReq)
 	case WsSetBackgroundStatus:
 		resp, messageErr = c.setAppBackgroundStatus(ctx, binaryReq)

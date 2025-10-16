@@ -74,9 +74,12 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 }
 
 func (r *pushServer) PushMsg(ctx context.Context, pbData *pbpush.PushMsgReq) (resp *pbpush.PushMsgResp, err error) {
+
 	switch pbData.MsgData.SessionType {
 	case constant.SuperGroupChatType:
 		err = r.pusher.Push2SuperGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
+	case constant.GroupChatType: ///增加聊天室
+		err = r.pusher.Push2RoomGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
 	default:
 		var pushUserIDList []string
 		isSenderSync := utils.GetSwitchFromOptions(pbData.MsgData.Options, constant.IsSenderSync)

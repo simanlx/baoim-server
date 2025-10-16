@@ -90,8 +90,19 @@ func NewOfflinePusher(config *config.GlobalConfig, cache cache.MsgModel) offline
 	return offlinePusher
 }
 
+// //
 func (p *Pusher) DeleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
 	conevrsationID := msgprocessor.GetConversationIDBySessionType(constant.SuperGroupChatType, groupID)
+	maxSeq, err := p.msgRpcClient.GetConversationMaxSeq(ctx, conevrsationID)
+	if err != nil {
+		return err
+	}
+	return p.conversationRpcClient.SetConversationMaxSeq(ctx, userIDs, conevrsationID, maxSeq)
+}
+
+// //
+func (p *Pusher) DeleteRoomMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
+	conevrsationID := msgprocessor.GetConversationIDBySessionType(constant.GroupChatType, groupID)
 	maxSeq, err := p.msgRpcClient.GetConversationMaxSeq(ctx, conevrsationID)
 	if err != nil {
 		return err
@@ -191,6 +202,7 @@ func (p *Pusher) k8sOfflinePush2SuperGroup(ctx context.Context, groupID string, 
 	}
 	return nil
 }
+
 func (p *Pusher) Push2SuperGroup(ctx context.Context, groupID string, msg *sdkws.MsgData) (err error) {
 	log.ZDebug(ctx, "Get super group msg from msg_transfer and push msg", "msg", msg.String(), "groupID", groupID)
 	var pushToUserIDs []string
@@ -332,6 +344,187 @@ func (p *Pusher) Push2SuperGroup(ctx context.Context, groupID string, msg *sdkws
 	return nil
 }
 
+// /增加 聊天室推送  每增加离线推送哦
+func (p *Pusher) Push2RoomGroup(ctx context.Context, groupID string, msg *sdkws.MsgData) (err error) {
+
+	// 记录日志：从msg_transfer获取超级群消息并推送
+	log.ZDebug(ctx, "Get super group msg from msg_transfer and push msg", "msg", msg.String(), "groupID", groupID)
+	var pushToUserIDs []string
+
+	// 回调处理超级群在线推送前的逻辑，可能会填充pushToUserIDs
+	if err = callbackBeforeSuperGroupOnlinePush(ctx, p.config, groupID, msg, &pushToUserIDs); err != nil {
+		return err
+	}
+
+	// 如果pushToUserIDs为空，则从本地缓存获取群成员列表
+	if len(pushToUserIDs) == 0 {
+		pushToUserIDs, err = p.groupLocalCache.GetGroupMemberIDs(ctx, groupID)
+		if err != nil {
+			return err
+		}
+
+		// 打印消息类型
+
+		switch msg.ContentType {
+		case constant.RoomMemberQuitNotification:
+			// 群成员退出通知
+			var tips sdkws.MemberQuitTips
+			if p.UnmarshalNotificationElem(msg.Content, &tips) != nil {
+				return err
+			}
+			// defer处理：删除成员并设置会话序列
+			defer func(groupID string, userIDs []string) {
+				if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
+					log.ZError(ctx, "MemberQuitNotification DeleteROOMMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
+				}
+			}(groupID, []string{tips.QuitUser.UserID})
+			// 退出的用户也需要推送
+			pushToUserIDs = append(pushToUserIDs, tips.QuitUser.UserID)
+		case constant.RoomMemberKickedNotification:
+			// 群成员被踢通知
+			var tips sdkws.MemberKickedTips
+			if p.UnmarshalNotificationElem(msg.Content, &tips) != nil {
+				return err
+			}
+			// 获取被踢用户ID列表
+			kickedUsers := utils.Slice(tips.KickedUserList, func(e *sdkws.GroupMemberFullInfo) string { return e.UserID })
+			// defer处理：删除成员并设置会话序列
+			defer func(groupID string, userIDs []string) {
+				if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
+					log.ZError(ctx, "MemberKickedNotification DeleteroomMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
+				}
+			}(groupID, kickedUsers)
+			// 被踢用户也需要推送
+			pushToUserIDs = append(pushToUserIDs, kickedUsers...)
+		case constant.RoomGroupDismissedNotification:
+			// 群解散通知，消息先到，通知后到
+			if msgprocessor.IsNotification(msgprocessor.GetConversationIDByMsg(msg)) {
+				var tips sdkws.GroupDismissedTips
+				if p.UnmarshalNotificationElem(msg.Content, &tips) != nil {
+					return err
+				}
+				// 记录解散通知相关信息
+				log.ZInfo(ctx, "ROOMGroupDismissedNotificationInfo****", "groupID", groupID, "num", len(pushToUserIDs), "list", pushToUserIDs)
+				// 设置操作用户ID为管理员
+				if len(p.config.Manager.UserID) > 0 {
+					ctx = mcontext.WithOpUserIDContext(ctx, p.config.Manager.UserID[0])
+				}
+				// 如果没有管理员，则设置为IMAdmin
+				if len(p.config.Manager.UserID) == 0 && len(p.config.IMAdmin.UserID) > 0 {
+					ctx = mcontext.WithOpUserIDContext(ctx, p.config.IMAdmin.UserID[0])
+				}
+				// defer处理：调用RPC解散群聊，清空成员
+				defer func(groupID string) {
+					if err = p.groupRpcClient.DismissRoom(ctx, groupID); err != nil {
+						log.ZError(ctx, "DismissRoom Notification clear members", err, "groupID", groupID)
+					}
+				}(groupID)
+			}
+		}
+	}
+
+	// 获取连接并进行在线推送
+	wsResults, err := p.GetConnsAndOnlinePush(ctx, msg, pushToUserIDs)
+	if err != nil {
+		return err
+	}
+
+	// 记录在线推送成功日志
+	log.ZDebug(ctx, "get conn and online push success", "result", wsResults, "msg", msg)
+
+	// 判断是否需要离线推送（根据消息options开关）
+	isOfflinePush := utils.GetSwitchFromOptions(msg.Options, constant.IsOfflinePush)
+	if isOfflinePush && p.config.Envs.Discovery == "k8s" {
+		// k8s环境下的超级群离线推送
+		return p.k8sOfflinePush2SuperGroup(ctx, groupID, msg, wsResults)
+	}
+	if isOfflinePush && p.config.Envs.Discovery == "zookeeper" {
+		// zookeeper环境下处理离线推送
+		var (
+			onlineSuccessUserIDs      = []string{msg.SendID} // 在线推送成功的用户ID（含发送者）
+			webAndPcBackgroundUserIDs []string               // Web和PC后台用户ID
+		)
+
+		// 遍历在线推送结果
+		for _, v := range wsResults {
+			// 非发送者且在线推送成功，加入在线成功列表
+			if v.OnlinePush && v.UserID != msg.SendID {
+				onlineSuccessUserIDs = append(onlineSuccessUserIDs, v.UserID)
+			}
+
+			// 在线推送成功跳过
+			if v.OnlinePush {
+				continue
+			}
+
+			// 没有响应则跳过
+			if len(v.Resp) == 0 {
+				continue
+			}
+
+			// 遍历推送响应结果
+			for _, singleResult := range v.Resp {
+				if singleResult.ResultCode != -2 {
+					continue
+				}
+
+				// 判断平台是否为PC或Web
+				isPC := constant.PlatformIDToName(int(singleResult.RecvPlatFormID)) == constant.TerminalPC
+				isWebID := singleResult.RecvPlatFormID == constant.WebPlatformID
+
+				// PC或Web后台用户，加入webAndPcBackgroundUserIDs
+				if isPC || isWebID {
+					webAndPcBackgroundUserIDs = append(webAndPcBackgroundUserIDs, v.UserID)
+				}
+			}
+		}
+
+		// 需要离线推送的用户ID
+		needOfflinePushUserIDs := utils.DifferenceString(onlineSuccessUserIDs, pushToUserIDs)
+
+		// 开始离线推送流程
+		if len(needOfflinePushUserIDs) > 0 {
+			var offlinePushUserIDs []string
+			// 回调处理离线推送，可能进一步过滤用户
+			err = callbackOfflinePush(ctx, p.config, needOfflinePushUserIDs, msg, &offlinePushUserIDs)
+			if err != nil {
+				return err
+			}
+
+			if len(offlinePushUserIDs) > 0 {
+				needOfflinePushUserIDs = offlinePushUserIDs
+			}
+			// 信令通知不做离线推送
+			if msg.ContentType != constant.SignalingNotification {
+				// 获取会话的离线推送用户ID
+				resp, err := p.conversationRpcClient.Client.GetConversationOfflinePushUserIDs(
+					ctx,
+					&conversation.GetConversationOfflinePushUserIDsReq{ConversationID: utils.GenGroupConversationID(groupID), UserIDs: needOfflinePushUserIDs},
+				)
+				if err != nil {
+					return err
+				}
+				if len(resp.UserIDs) > 0 {
+					// 离线推送消息
+					err = p.offlinePushMsg(ctx, groupID, msg, resp.UserIDs)
+					if err != nil {
+						log.ZError(ctx, "offlinePushMsg failed", err, "groupID", groupID, "msg", msg)
+						return err
+					}
+					// Web/PC后台用户再做一次在线推送
+					if _, err := p.GetConnsAndOnlinePush(ctx, msg, utils.IntersectString(resp.UserIDs, webAndPcBackgroundUserIDs)); err != nil {
+						log.ZError(ctx, "offlinePushMsg failed", err, "groupID", groupID, "msg", msg, "userIDs", utils.IntersectString(needOfflinePushUserIDs, webAndPcBackgroundUserIDs))
+						return err
+					}
+				}
+			}
+
+		}
+	}
+	// 全部处理完成，返回nil表示成功
+	return nil
+}
+
 func (p *Pusher) k8sOnlinePush(ctx context.Context, msg *sdkws.MsgData, pushToUserIDs []string) (wsResults []*msggateway.SingleMsgToUserResults, err error) {
 	var usersHost = make(map[string][]string)
 	for _, v := range pushToUserIDs {
@@ -386,39 +579,50 @@ func (p *Pusher) k8sOnlinePush(ctx context.Context, msg *sdkws.MsgData, pushToUs
 	return wsResults, nil
 }
 func (p *Pusher) GetConnsAndOnlinePush(ctx context.Context, msg *sdkws.MsgData, pushToUserIDs []string) (wsResults []*msggateway.SingleMsgToUserResults, err error) {
+	// 如果配置为k8s环境，调用k8s的在线推送逻辑
 	if p.config.Envs.Discovery == "k8s" {
 		return p.k8sOnlinePush(ctx, msg, pushToUserIDs)
 	}
+	// 获取消息网关连接
 	conns, err := p.discov.GetConns(ctx, p.config.RpcRegisterName.OpenImMessageGatewayName)
+	// 打印获取到的网关连接数量
 	log.ZDebug(ctx, "get gateway conn", "conn length", len(conns))
+	// 获取连接失败，则返回错误
 	if err != nil {
 		return nil, err
 	}
 
 	var (
-		mu         sync.Mutex
-		wg         = errgroup.Group{}
-		input      = &msggateway.OnlineBatchPushOneMsgReq{MsgData: msg, PushToUserIDs: pushToUserIDs}
-		maxWorkers = p.config.Push.MaxConcurrentWorkers
+		mu         sync.Mutex                                                                         // 互斥锁用于并发安全地写wsResults
+		wg         = errgroup.Group{}                                                                 // 并发错误组，用于等待所有goroutine结束
+		input      = &msggateway.OnlineBatchPushOneMsgReq{MsgData: msg, PushToUserIDs: pushToUserIDs} // 构造批量推送请求
+		maxWorkers = p.config.Push.MaxConcurrentWorkers                                               // 最大并发数
 	)
 
+	// 如果最大并发数小于3，则强制设置为3
 	if maxWorkers < 3 {
 		maxWorkers = 3
 	}
 
+	// 设置并发上限
 	wg.SetLimit(maxWorkers)
 
-	// Online push message
+	// 遍历每个连接，发起在线消息推送
 	for _, conn := range conns {
-		conn := conn // loop var safe
+		conn := conn // 保护循环变量
 		wg.Go(func() error {
+			// 创建消息网关客户端
 			msgClient := msggateway.NewMsgGatewayClient(conn)
+			// 发送批量推送请求
 			reply, err := msgClient.SuperGroupOnlineBatchPushOneMsg(ctx, input)
+			// 推送失败直接返回nil，不做错误处理
 			if err != nil {
 				return nil
 			}
 
+			// 打印推送结果
 			log.ZDebug(ctx, "push result", "reply", reply)
+			// 如果推送结果不为空，且包含单用户结果则写入wsResults
 			if reply != nil && reply.SinglePushResult != nil {
 				mu.Lock()
 				wsResults = append(wsResults, reply.SinglePushResult...)
@@ -429,9 +633,10 @@ func (p *Pusher) GetConnsAndOnlinePush(ctx context.Context, msg *sdkws.MsgData, 
 		})
 	}
 
+	// 等待所有goroutine结束
 	_ = wg.Wait()
 
-	// always return nil
+	// 始终返回nil错误和最终结果
 	return wsResults, nil
 }
 

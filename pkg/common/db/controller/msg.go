@@ -206,83 +206,86 @@ func (db *commonMsgDatabase) MsgToMongoMQ(ctx context.Context, key, conversation
 }
 
 func (db *commonMsgDatabase) BatchInsertBlock(ctx context.Context, conversationID string, fields []any, key int8, firstSeq int64) error {
+	// 如果字段为空，直接返回
 	if len(fields) == 0 {
 		return nil
 	}
-	num := db.msg.GetSingleGocMsgNum()
+	num := db.msg.GetSingleGocMsgNum() // 获取单个文档可存放消息数量
 	// num = 100
-	for i, field := range fields { // Check the type of the field
+	for i, field := range fields { // 检查每个字段类型
 		var ok bool
 		switch key {
-		case updateKeyMsg:
+		case updateKeyMsg: // 普通消息
 			var msg *unrelationtb.MsgDataModel
-			msg, ok = field.(*unrelationtb.MsgDataModel)
-			if msg != nil && msg.Seq != firstSeq+int64(i) {
-				return errs.ErrInternalServer.Wrap("seq is invalid")
+			msg, ok = field.(*unrelationtb.MsgDataModel)    // 类型断言
+			if msg != nil && msg.Seq != firstSeq+int64(i) { // 校验seq是否连续
+				return errs.ErrInternalServer.Wrap("seq is invalid") // 序列号无效则报错
 			}
-		case updateKeyRevoke:
-			_, ok = field.(*unrelationtb.RevokeModel)
+		case updateKeyRevoke: // 撤回消息
+			_, ok = field.(*unrelationtb.RevokeModel) // 类型断言
 		default:
-			return errs.ErrInternalServer.Wrap("key is invalid")
+			return errs.ErrInternalServer.Wrap("key is invalid") // key类型无效则报错
 		}
-		if !ok {
+		if !ok { // 类型断言失败
 			return errs.ErrInternalServer.Wrap("field type is invalid")
 		}
 	}
-	// Returns true if the document exists in the database, false if the document does not exist in the database
+	// 判断数据库中是否已存在该消息，存在则更新，否则插入
 	updateMsgModel := func(seq int64, i int) (bool, error) {
 		var (
 			res *mongo.UpdateResult
 			err error
 		)
-		docID := db.msg.GetDocID(conversationID, seq)
-		index := db.msg.GetMsgIndex(seq)
-		field := fields[i]
+		docID := db.msg.GetDocID(conversationID, seq) // 计算文档ID
+		index := db.msg.GetMsgIndex(seq)              // 获取消息在文档中的索引
+		field := fields[i]                            // 当前字段
 		switch key {
-		case updateKeyMsg:
-			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "msg", field)
-		case updateKeyRevoke:
-			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "revoke", field)
+		case updateKeyMsg: // 普通消息
+			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "msg", field) // 更新消息内容
+		case updateKeyRevoke: // 撤回消息
+			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "revoke", field) // 更新撤回内容
 		}
 		if err != nil {
 			return false, err
 		}
-		return res.MatchedCount > 0, nil
+		return res.MatchedCount > 0, nil // true表示已存在并更新
 	}
-	tryUpdate := true
+	tryUpdate := true // 初始尝试更新模式
 	for i := 0; i < len(fields); i++ {
-		seq := firstSeq + int64(i) // Current sequence number
+		seq := firstSeq + int64(i) // 当前消息序列号
 		if tryUpdate {
-			matched, err := updateMsgModel(seq, i)
+			matched, err := updateMsgModel(seq, i) // 尝试更新数据库
 			if err != nil {
 				return err
 			}
 			if matched {
-				continue // The current data has been updated, skip the current data
+				continue // 更新成功则跳过当前数据
 			}
 		}
+		// 构造待插入的消息文档
 		doc := unrelationtb.MsgDocModel{
-			DocID: db.msg.GetDocID(conversationID, seq),
-			Msg:   make([]*unrelationtb.MsgInfoModel, num),
+			DocID: db.msg.GetDocID(conversationID, seq),    // 文档ID
+			Msg:   make([]*unrelationtb.MsgInfoModel, num), // 初始化消息列表
 		}
-		var insert int // Inserted data number
-		for j := i; j < len(fields); j++ {
+		var insert int                     // 插入的数据数量
+		for j := i; j < len(fields); j++ { // 组装同一个文档内的所有消息
 			seq = firstSeq + int64(j)
-			if db.msg.GetDocID(conversationID, seq) != doc.DocID {
+			if db.msg.GetDocID(conversationID, seq) != doc.DocID { // 超出当前文档则退出
 				break
 			}
 			insert++
 			switch key {
-			case updateKeyMsg:
+			case updateKeyMsg: // 普通消息
 				doc.Msg[db.msg.GetMsgIndex(seq)] = &unrelationtb.MsgInfoModel{
-					Msg: fields[j].(*unrelationtb.MsgDataModel),
+					Msg: fields[j].(*unrelationtb.MsgDataModel), // 填充消息数据
 				}
-			case updateKeyRevoke:
+			case updateKeyRevoke: // 撤回消息
 				doc.Msg[db.msg.GetMsgIndex(seq)] = &unrelationtb.MsgInfoModel{
-					Revoke: fields[j].(*unrelationtb.RevokeModel),
+					Revoke: fields[j].(*unrelationtb.RevokeModel), // 填充撤回数据
 				}
 			}
 		}
+		// 补全空位
 		for i, model := range doc.Msg {
 			if model == nil {
 				model = &unrelationtb.MsgInfoModel{}
@@ -292,18 +295,19 @@ func (db *commonMsgDatabase) BatchInsertBlock(ctx context.Context, conversationI
 				doc.Msg[i].DelList = []string{}
 			}
 		}
+		// 插入数据库
 		if err := db.msgDocDatabase.Create(ctx, &doc); err != nil {
-			if mongo.IsDuplicateKeyError(err) {
-				i--              // already inserted
-				tryUpdate = true // next block use update mode
+			if mongo.IsDuplicateKeyError(err) { // 已存在则下次尝试更新
+				i--              // 当前数据已插入，回退索引
+				tryUpdate = true // 下一个块采用更新模式
 				continue
 			}
-			return err
+			return err // 其他错误直接返回
 		}
-		tryUpdate = false // The current block is inserted successfully, and the next block is inserted preferentially
-		i += insert - 1   // Skip the inserted data
+		tryUpdate = false // 当前块插入成功，下一个块优先尝试插入
+		i += insert - 1   // 跳过已插入的数据
 	}
-	return nil
+	return nil // 批量插入完成
 }
 
 func (db *commonMsgDatabase) BatchInsertChat2DB(ctx context.Context, conversationID string, msgList []*sdkws.MsgData, currentMaxSeq int64) error {
@@ -379,46 +383,66 @@ func (db *commonMsgDatabase) DelUserDeleteMsgsList(ctx context.Context, conversa
 	db.cache.DelUserDeleteMsgsList(ctx, conversationID, seqs)
 }
 
+// 定义函数BatchInsertChat2Cache，接收上下文、会话ID和消息列表，返回最后序列号、是否为新会话和错误
 func (db *commonMsgDatabase) BatchInsertChat2Cache(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) (seq int64, isNew bool, err error) {
+	// 从缓存中获取当前会话的最大序列号
 	currentMaxSeq, err := db.cache.GetMaxSeq(ctx, conversationID)
+	// 如果发生错误且不是redis.Nil（键不存在），则记录错误并返回
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		log.ZError(ctx, "db.cache.GetMaxSeq", err)
 		return 0, false, err
 	}
+	// 获取消息列表长度
 	lenList := len(msgs)
+	// 检查消息数量是否超过单次允许的最大数量
 	if int64(lenList) > db.msg.GetSingleGocMsgNum() {
 		return 0, false, errors.New("too large")
 	}
+	// 检查消息列表是否为空
 	if lenList < 1 {
 		return 0, false, errors.New("too short as 0")
 	}
+	// 如果错误是redis.Nil（键不存在），说明是新会话
 	if errs.Unwrap(err) == redis.Nil {
 		isNew = true
 	}
+	// 保存初始的最大序列号（作为返回值）
 	lastMaxSeq := currentMaxSeq
+	// 创建用户序列号映射，记录每个用户的最新消息序列号
 	userSeqMap := make(map[string]int64)
+	// 遍历消息列表，为每条消息分配递增的序列号
 	for _, m := range msgs {
-		currentMaxSeq++
-		m.Seq = currentMaxSeq
-		userSeqMap[m.SendID] = m.Seq
+		currentMaxSeq++              // 序列号自增
+		m.Seq = currentMaxSeq        // 为消息设置序列号
+		userSeqMap[m.SendID] = m.Seq // 更新用户最新序列号映射
 	}
+	// 将消息批量写入缓存，返回失败数量
 	failedNum, err := db.cache.SetMessageToCache(ctx, conversationID, msgs)
+	// 如果写入缓存失败
 	if err != nil {
+		// 记录失败数量的指标
 		prommetrics.MsgInsertRedisFailedCounter.Add(float64(failedNum))
+		// 记录错误日志
 		log.ZError(ctx, "setMessageToCache error", err, "len", len(msgs), "conversationID", conversationID)
 	} else {
+		// 记录成功的指标
 		prommetrics.MsgInsertRedisSuccessCounter.Inc()
 	}
+	// 更新缓存中的最大序列号
 	err = db.cache.SetMaxSeq(ctx, conversationID, currentMaxSeq)
 	if err != nil {
+		// 记录更新序列号失败的日志和指标
 		log.ZError(ctx, "db.cache.SetMaxSeq error", err, "conversationID", conversationID)
 		prommetrics.SeqSetFailedCounter.Inc()
 	}
+	// 设置用户已读序列号
 	err = db.cache.SetHasReadSeqs(ctx, conversationID, userSeqMap)
 	if err != nil {
+		// 记录设置已读序列号失败的日志和指标
 		log.ZError(ctx, "SetHasReadSeqs error", err, "userSeqMap", userSeqMap, "conversationID", conversationID)
 		prommetrics.SeqSetFailedCounter.Inc()
 	}
+	// 返回最后使用的序列号、是否为新会话和包装后的错误
 	return lastMaxSeq, isNew, errs.Wrap(err)
 }
 
@@ -542,6 +566,7 @@ func (db *commonMsgDatabase) getMsgBySeqsRange(ctx context.Context, userID strin
 // "userMinSeq" can be set as the same value as the conversation's "maxSeq" at the moment they join the group.
 // This ensures that their message retrieval starts from the point they joined.
 func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (int64, int64, []*sdkws.MsgData, error) {
+
 	userMinSeq, err := db.cache.GetConversationUserMinSeq(ctx, conversationID, userID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		return 0, 0, nil, err
@@ -832,6 +857,7 @@ func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversatio
 				log.ZError(ctx, "deleteMsgRecursion GetUserMsgListByIndex failed", err, "conversationID", conversationID, "index", index)
 			}
 		}
+		//如果报告了错误，或者无法获得错误，则会将其物理删除，并返回seq-delMongoMsgsPhysical（delStruct.delDocIDList）以结束递归
 		// If an error is reported, or the error cannot be obtained, it is physically deleted and seq delMongoMsgsPhysical(delStruct.delDocIDList) is returned to end the recursion
 		err = db.msgDocDatabase.DeleteDocs(ctx, delStruct.delDocIDs)
 		if err != nil {

@@ -21,10 +21,14 @@ import (
 	pbgroup "baoim/protocol/group"
 )
 
+// GetJoinedSuperGroupList 已弃用的方法，直接返回错误
 func (s *groupServer) GetJoinedSuperGroupList(context.Context, *pbgroup.GetJoinedSuperGroupListReq) (*pbgroup.GetJoinedSuperGroupListResp, error) {
+	// 返回错误信息，表示该方法已废弃
 	return nil, errors.New("deprecated")
 }
 
+// GetSuperGroupsInfo 已弃用的方法，直接返回错误
 func (s *groupServer) GetSuperGroupsInfo(context.Context, *pbgroup.GetSuperGroupsInfoReq) (resp *pbgroup.GetSuperGroupsInfoResp, err error) {
+	// 返回错误信息，表示该方法已废弃
 	return nil, errors.New("deprecated")
 }

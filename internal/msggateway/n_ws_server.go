@@ -266,6 +266,8 @@ func (ws *WsServer) registerClient(client *Client) {
 		clientOK   bool
 		oldClients []*Client
 	)
+
+	println("注册客户端")
 	oldClients, userOK, clientOK = ws.clients.Get(client.UserID, client.PlatformID)
 	if !userOK {
 		ws.clients.Set(client.UserID, client)
@@ -405,6 +407,8 @@ func (ws *WsServer) multiTerminalLoginChecker(clientOK bool, oldClients []*Clien
 }
 
 func (ws *WsServer) unregisterClient(client *Client) {
+	println("移除客户端")
+
 	defer ws.clientPool.Put(client)
 	isDeleteUser := ws.clients.delete(client.UserID, client.ctx.GetRemoteAddr())
 	if isDeleteUser {

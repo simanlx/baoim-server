@@ -35,18 +35,28 @@ type FriendLocalCache struct {
 }
 
 func (f *FriendLocalCache) IsFriend(ctx context.Context, possibleFriendUserID, userID string) (val bool, err error) {
+	// 打印好友查询请求日志，包含两个用户ID
 	log.ZDebug(ctx, "FriendLocalCache IsFriend req", "possibleFriendUserID", possibleFriendUserID, "userID", userID)
+	// 使用 defer，在函数返回时自动打印返回结果日志
 	defer func() {
 		if err == nil {
+			// 如果没有错误，打印返回的结果值
 			log.ZDebug(ctx, "FriendLocalCache IsFriend return", "value", val)
 		} else {
+			// 如果有错误，打印错误信息
 			log.ZError(ctx, "FriendLocalCache IsFriend return", err)
 		}
 	}()
-	return localcache.AnyValue[bool](f.local.GetLink(ctx, cachekey.GetIsFriendKey(possibleFriendUserID, userID), func(ctx context.Context) (any, error) {
-		log.ZDebug(ctx, "FriendLocalCache IsFriend rpc", "possibleFriendUserID", possibleFriendUserID, "userID", userID)
-		return f.client.IsFriend(ctx, possibleFriendUserID, userID)
-	}, cachekey.GetFriendIDsKey(possibleFriendUserID)))
+	// 查询是否为好友，优先从本地缓存获取，没有则通过 client 远程调用
+	return localcache.AnyValue[bool](f.local.GetLink(
+		ctx, // 上下文参数
+		cachekey.GetIsFriendKey(possibleFriendUserID, userID), // 生成缓存的键，唯一标识这两个用户的好友关系
+		func(ctx context.Context) (any, error) { // 如果缓存没有命中，执行这个回调去远程查询
+			// 打印远程调用日志
+			log.ZDebug(ctx, "FriendLocalCache IsFriend rpc", "possibleFriendUserID", possibleFriendUserID, "userID", userID)
+			// 实际通过 client 查询这两个用户是否为好友
+			return f.client.IsFriend(ctx, possibleFriendUserID, userID)
+		}, cachekey.GetFriendIDsKey(possibleFriendUserID))) // 关联缓存的其他键（一般用于缓存失效或更新）
 }
 
 // IsBlack possibleBlackUserID selfUserID

@@ -33,47 +33,55 @@ import (
 )
 
 func CallbackBeforeCreateGroup(ctx context.Context, globalConfig *config.GlobalConfig, req *group.CreateGroupReq) (err error) {
+	// 如果未启用 CallbackBeforeCreateGroup 回调，直接返回 nil，无需处理
 	if !globalConfig.Callback.CallbackBeforeCreateGroup.Enable {
 		return nil
 	}
+	// 构建回调请求结构体，设置回调命令/OperationID/群信息
 	cbReq := &callbackstruct.CallbackBeforeCreateGroupReq{
-		CallbackCommand: callbackstruct.CallbackBeforeCreateGroupCommand,
-		OperationID:     mcontext.GetOperationID(ctx),
-		GroupInfo:       req.GroupInfo,
+		CallbackCommand: callbackstruct.CallbackBeforeCreateGroupCommand, // 回调命令标识
+		OperationID:     mcontext.GetOperationID(ctx),                    // 获取当前操作ID
+		GroupInfo:       req.GroupInfo,                                   // 群组基本信息
 	}
+	// 初始化成员列表，加入群主信息
 	cbReq.InitMemberList = append(cbReq.InitMemberList, &apistruct.GroupAddMemberInfo{
-		UserID:    req.OwnerUserID,
-		RoleLevel: constant.GroupOwner,
+		UserID:    req.OwnerUserID,     // 群主ID
+		RoleLevel: constant.GroupOwner, // 群主角色
 	})
+	// 将管理员成员加入初始化成员列表
 	for _, userID := range req.AdminUserIDs {
 		cbReq.InitMemberList = append(cbReq.InitMemberList, &apistruct.GroupAddMemberInfo{
-			UserID:    userID,
-			RoleLevel: constant.GroupAdmin,
+			UserID:    userID,              // 管理员ID
+			RoleLevel: constant.GroupAdmin, // 管理员角色
 		})
 	}
+	// 普通成员加入初始化成员列表
 	for _, userID := range req.MemberUserIDs {
 		cbReq.InitMemberList = append(cbReq.InitMemberList, &apistruct.GroupAddMemberInfo{
-			UserID:    userID,
-			RoleLevel: constant.GroupOrdinaryUsers,
+			UserID:    userID,                      // 普通成员ID
+			RoleLevel: constant.GroupOrdinaryUsers, // 普通成员角色
 		})
 	}
+	// 构建回调响应结构体
 	resp := &callbackstruct.CallbackBeforeCreateGroupResp{}
+	// 调用回调接口，传递请求与响应结构体，并根据配置执行回调
 	if err = http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeCreateGroup); err != nil {
-		return err
+		return err // 回调出错则返回错误
 	}
-	utils.NotNilReplace(&req.GroupInfo.GroupID, resp.GroupID)
-	utils.NotNilReplace(&req.GroupInfo.GroupName, resp.GroupName)
-	utils.NotNilReplace(&req.GroupInfo.Notification, resp.Notification)
-	utils.NotNilReplace(&req.GroupInfo.Introduction, resp.Introduction)
-	utils.NotNilReplace(&req.GroupInfo.FaceURL, resp.FaceURL)
-	utils.NotNilReplace(&req.GroupInfo.OwnerUserID, resp.OwnerUserID)
-	utils.NotNilReplace(&req.GroupInfo.Ex, resp.Ex)
-	utils.NotNilReplace(&req.GroupInfo.Status, resp.Status)
-	utils.NotNilReplace(&req.GroupInfo.CreatorUserID, resp.CreatorUserID)
-	utils.NotNilReplace(&req.GroupInfo.GroupType, resp.GroupType)
-	utils.NotNilReplace(&req.GroupInfo.NeedVerification, resp.NeedVerification)
-	utils.NotNilReplace(&req.GroupInfo.LookMemberInfo, resp.LookMemberInfo)
-	return nil
+	// 用回调响应结果替换原始请求中的群组信息字段（若不为空）
+	utils.NotNilReplace(&req.GroupInfo.GroupID, resp.GroupID)                   // 群组ID
+	utils.NotNilReplace(&req.GroupInfo.GroupName, resp.GroupName)               // 群组名称
+	utils.NotNilReplace(&req.GroupInfo.Notification, resp.Notification)         // 群公告
+	utils.NotNilReplace(&req.GroupInfo.Introduction, resp.Introduction)         // 群简介
+	utils.NotNilReplace(&req.GroupInfo.FaceURL, resp.FaceURL)                   // 群头像
+	utils.NotNilReplace(&req.GroupInfo.OwnerUserID, resp.OwnerUserID)           // 群主ID
+	utils.NotNilReplace(&req.GroupInfo.Ex, resp.Ex)                             // 扩展字段
+	utils.NotNilReplace(&req.GroupInfo.Status, resp.Status)                     // 群状态
+	utils.NotNilReplace(&req.GroupInfo.CreatorUserID, resp.CreatorUserID)       // 创建者ID
+	utils.NotNilReplace(&req.GroupInfo.GroupType, resp.GroupType)               // 群类型
+	utils.NotNilReplace(&req.GroupInfo.NeedVerification, resp.NeedVerification) // 是否需验证
+	utils.NotNilReplace(&req.GroupInfo.LookMemberInfo, resp.LookMemberInfo)     // 是否可查看成员信息
+	return nil                                                                  // 回调及字段替换均成功后返回 nil
 }
 
 func CallbackAfterCreateGroup(ctx context.Context, globalConfig *config.GlobalConfig, req *group.CreateGroupReq) (err error) {

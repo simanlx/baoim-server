@@ -39,6 +39,16 @@ type GroupModel struct {
 	NotificationUserID     string    `bson:"notification_user_id"`
 }
 
+//// /增加 聊天室房间模型
+//type RoomModel struct {
+//	RoomID string `bson:"room_id"`
+//	Name   string `bson:"name"`
+//	Img    string `bson:"img"`
+//	Num    int32  `bson:"num"`
+//	Score  int64  `bson:"score"`
+//	//CreateTime             time.Time `bson:"create_time"`
+//}
+
 type GroupModelInterface interface {
 	Create(ctx context.Context, groups []*GroupModel) (err error)
 	UpdateMap(ctx context.Context, groupID string, args map[string]any) (err error)

@@ -201,9 +201,14 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 	groupRouterGroup := r.Group("/group", ParseToken)
 	{
 		groupRouterGroup.POST("/create_group", g.CreateGroup)
+		groupRouterGroup.POST("/create_group_room", g.CreateGroupRoom)
 		groupRouterGroup.POST("/set_group_info", g.SetGroupInfo)
 		groupRouterGroup.POST("/join_group", g.JoinGroup)
+
+		groupRouterGroup.POST("/join_room", g.JoinRoom) //加入聊天室
+
 		groupRouterGroup.POST("/quit_group", g.QuitGroup)
+		groupRouterGroup.POST("/quit_room", g.QuitRoom) //退出聊天室
 		groupRouterGroup.POST("/group_application_response", g.ApplicationGroupResponse)
 		groupRouterGroup.POST("/transfer_group", g.TransferGroupOwner)
 		groupRouterGroup.POST("/get_recv_group_applicationList", g.GetRecvGroupApplicationList)
@@ -216,6 +221,8 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/invite_user_to_group", g.InviteUserToGroup)
 		groupRouterGroup.POST("/get_joined_group_list", g.GetJoinedGroupList)
 		groupRouterGroup.POST("/dismiss_group", g.DismissGroup) //
+		groupRouterGroup.POST("/dismiss_room", g.DismissRoom)   // 解散聊天室
+
 		groupRouterGroup.POST("/mute_group_member", g.MuteGroupMember)
 		groupRouterGroup.POST("/cancel_mute_group_member", g.CancelMuteGroupMember)
 		groupRouterGroup.POST("/mute_group", g.MuteGroup)
@@ -224,6 +231,10 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/get_group_abstract_info", g.GetGroupAbstractInfo)
 		groupRouterGroup.POST("/get_groups", g.GetGroups)
 		groupRouterGroup.POST("/get_group_member_user_id", g.GetGroupMemberUserIDs)
+
+		groupRouterGroup.POST("/get_room_list", g.GetRoomList)
+		groupRouterGroup.POST("/get_room_info", g.GetRoomInfo) ///获取当前房间 缓存
+
 	}
 	superGroupRouterGroup := r.Group("/super_group", ParseToken)
 	{
@@ -275,6 +286,9 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		msgGroup.POST("/newest_seq", m.GetSeq)
 		msgGroup.POST("/search_msg", m.SearchMsg)
 		msgGroup.POST("/send_msg", m.SendMessage)
+
+		msgGroup.POST("/msg_Verification", m.MsgVerification) //增加消息验证接口
+
 		msgGroup.POST("/send_business_notification", m.SendBusinessNotification)
 		msgGroup.POST("/pull_msg_by_seq", m.PullMsgBySeqs)
 		msgGroup.POST("/revoke_msg", m.RevokeMsg)
@@ -290,6 +304,7 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		msgGroup.POST("/delete_msg_physical", m.DeleteMsgPhysical)
 
 		msgGroup.POST("/batch_send_msg", m.BatchSendMsg)
+
 		msgGroup.POST("/check_msg_is_send_success", m.CheckMsgIsSendSuccess)
 		msgGroup.POST("/get_server_time", m.GetServerTime)
 	}

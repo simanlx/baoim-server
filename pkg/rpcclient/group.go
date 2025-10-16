@@ -207,6 +207,15 @@ func (g *GroupRpcClient) DismissGroup(ctx context.Context, groupID string) error
 	return err
 }
 
+// /解散房间 rtc
+func (g *GroupRpcClient) DismissRoom(ctx context.Context, groupID string) error {
+	_, err := g.Client.DismissRoom(ctx, &group.DismissGroupReq{
+		GroupID:      groupID,
+		DeleteMember: true,
+	})
+	return err
+}
+
 func (g *GroupRpcClient) NotificationUserInfoUpdate(ctx context.Context, userID string) error {
 	_, err := g.Client.NotificationUserInfoUpdate(ctx, &group.NotificationUserInfoUpdateReq{
 		UserID: userID,

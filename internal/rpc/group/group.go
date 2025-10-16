@@ -16,6 +16,7 @@ package group
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -310,6 +311,194 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	return resp, nil
 }
 
+// /创建聊天室
+func (s *groupServer) CreateGroupRoom(ctx context.Context, req *pbgroup.CreateGroupReq) (*pbgroup.CreateGroupResp, error) {
+
+	// 校验群类型是否合法，仅支0 类型
+	if req.GroupInfo.GroupType != constant.NormalGroup {
+		return nil, errs.ErrArgs.Wrap(fmt.Sprintf("group type only supports %d", constant.NormalGroup))
+	}
+	// 校验群主是否为空
+	if req.OwnerUserID == "" {
+		return nil, errs.ErrArgs.Wrap("no group owner")
+	}
+	// 校验群主的权限
+	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config); err != nil {
+		return nil, err
+	}
+	// 汇总所有成员ID（成员、管理员、群主）
+	userIDs := append(append(req.MemberUserIDs, req.AdminUserIDs...), req.OwnerUserID)
+	// 获取操作人ID
+	opUserID := mcontext.GetOpUserID(ctx)
+	// 操作人不是群成员则加入
+	if !utils.Contain(opUserID, userIDs...) {
+		userIDs = append(userIDs, opUserID)
+	}
+	// 检查群成员是否有重复
+	if utils.Duplicate(userIDs) {
+		return nil, errs.ErrArgs.Wrap("group member repeated")
+	}
+	// 获取所有成员的用户信息映射
+	userMap, err := s.User.GetUsersInfoMap(ctx, userIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	// 校验所有成员都存在
+	if len(userMap) != len(userIDs) {
+		return nil, errs.ErrUserIDNotFound.Wrap("user not found")
+	}
+	// 创建群前回调（预处理逻辑）
+	if err := CallbackBeforeCreateGroup(ctx, s.config, req); err != nil {
+		return nil, err
+	}
+	// 群成员列表
+	var groupMembers []*relationtb.GroupMemberModel
+	// 转换群信息为数据库模型
+	group := convert.Pb2DBGroupInfo(req.GroupInfo)
+	// 生成群ID
+	if err := s.GenGroupID(ctx, &group.GroupID); err != nil {
+		return nil, err
+	}
+	// 内部函数：添加成员到群成员列表
+	joinGroup := func(userID string, nickname string, faceURL string, roleLevel int32) error {
+		groupMember := &relationtb.GroupMemberModel{
+			GroupID:        group.GroupID, // 群ID
+			UserID:         userID,        // 用户ID
+			Nickname:       nickname,
+			FaceURL:        faceURL,
+			RoleLevel:      roleLevel,                 // 角色等级
+			OperatorUserID: opUserID,                  // 操作者ID
+			JoinSource:     constant.JoinByInvitation, // 加群方式
+			InviterUserID:  opUserID,                  // 邀请人ID
+			JoinTime:       time.Now(),                // 加群时间
+			MuteEndTime:    time.UnixMilli(0),         // 禁言结束时间，默认不禁言
+		}
+		// 成员加入群前回调（预处理逻辑）
+		if err := CallbackBeforeMemberJoinGroup(ctx, s.config, groupMember, group.Ex); err != nil {
+			return err
+		}
+		// 添加到群成员列表
+		groupMembers = append(groupMembers, groupMember)
+		return nil
+	}
+	// 添加群主到群成员列表
+	if err := joinGroup(req.OwnerUserID, userMap[req.OwnerUserID].Nickname, userMap[req.OwnerUserID].FaceURL, constant.GroupOwner); err != nil {
+		return nil, err
+	}
+	// 添加管理员到群成员列表
+	for _, userID := range req.AdminUserIDs {
+		if err := joinGroup(userID, userMap[userID].UserID, userMap[userID].FaceURL, constant.GroupAdmin); err != nil {
+			return nil, err
+		}
+	}
+	// 添加普通成员到群成员列表
+	for _, userID := range req.MemberUserIDs {
+		if err := joinGroup(userID, userMap[userID].UserID, userMap[userID].FaceURL, constant.GroupOrdinaryUsers); err != nil {
+			return nil, err
+		}
+	}
+	// 在数据库中创建群及成员
+	if err := s.db.CreateGroup(ctx, []*relationtb.GroupModel{group}, groupMembers); err != nil {
+		return nil, err
+	}
+
+	///创建群组是  把房间缓存到redis 及排行 列表
+	if err := s.db.AddRoomList(ctx, &sdkws.RoomInfo{
+		RoomID: group.GroupID,
+		Uid:    group.CreatorUserID,
+		Name:   group.GroupName,
+		Img:    group.FaceURL,
+		Ms:     []string{"", "", "", "", "", "", "", ""},
+		Score:  50,
+	}); err != nil {
+
+		return nil, err
+
+	}
+
+	// 构造返回体响应
+	resp := &pbgroup.CreateGroupResp{GroupInfo: &sdkws.GroupInfo{}}
+	// 转换数据库群信息为PB结构体
+	resp.GroupInfo = convert.Db2PbGroupInfo(group, req.OwnerUserID, uint32(len(userIDs)))
+	// 设置群成员数量
+	resp.GroupInfo.MemberCount = uint32(len(userIDs))
+	// 构造群创建提示
+	tips := &sdkws.GroupCreatedTips{
+		Group:          resp.GroupInfo,                                                                      // 群信息
+		OperationTime:  group.CreateTime.UnixMilli(),                                                        // 操作时间
+		GroupOwnerUser: s.groupMemberDB2PB(groupMembers[0], userMap[groupMembers[0].UserID].AppMangerLevel), // 群主信息
+	}
+	// 设置群成员昵称和成员列表
+	for _, member := range groupMembers {
+		member.Nickname = userMap[member.UserID].Nickname // 设置成员昵称
+		tips.MemberList = append(tips.MemberList, s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel))
+		// 设置操作人信息
+		if member.UserID == opUserID {
+			tips.OpUser = s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel)
+			break
+		}
+	}
+
+	// 如果是超级群，异步发送超级群通知
+	if req.GroupInfo.GroupType == constant.SuperGroup {
+		go func() {
+			for _, userID := range userIDs {
+				s.Notification.SuperGroupNotification(ctx, userID, userID)
+			}
+		}()
+	} else {
+		// 普通群发送群创建通知
+		// s.Notification.GroupCreatedNotification(ctx, group, groupMembers, userMap)
+		tips := &sdkws.GroupCreatedTips{
+			Group:          resp.GroupInfo,
+			OperationTime:  group.CreateTime.UnixMilli(),
+			GroupOwnerUser: s.groupMemberDB2PB(groupMembers[0], userMap[groupMembers[0].UserID].AppMangerLevel),
+		}
+		for _, member := range groupMembers {
+			member.Nickname = userMap[member.UserID].Nickname
+			tips.MemberList = append(tips.MemberList, s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel))
+			if member.UserID == opUserID {
+				tips.OpUser = s.groupMemberDB2PB(member, userMap[member.UserID].AppMangerLevel)
+				break
+			}
+		}
+
+		s.Notification.RoomGroupCreatedNotification(ctx, tips)
+	}
+	// 构造群创建后回调请求体
+	reqCallBackAfter := &pbgroup.CreateGroupReq{
+		MemberUserIDs: userIDs,
+		GroupInfo:     resp.GroupInfo,
+		OwnerUserID:   req.OwnerUserID,
+		AdminUserIDs:  req.AdminUserIDs,
+	}
+
+	// 创建群后回调（后处理逻辑）
+	if err := CallbackAfterCreateGroup(ctx, s.config, reqCallBackAfter); err != nil {
+		return nil, err
+	}
+
+	// 返回响应
+	return resp, nil
+}
+
+func (s *groupServer) GetRoomList(ctx context.Context, req *pbgroup.GetRoomListReq) (*pbgroup.GetRoomListResp, error) {
+
+	if req.PageNumber == 0 || req.ShowNumber == 0 {
+		return nil, errs.Wrap(errors.New("parameter error"))
+	}
+
+	list, err := s.db.GetRoomList(ctx, req.PageNumber, req.ShowNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	//println(list.Rooms[0].RoomID)
+	return list, nil
+
+}
+
 func (s *groupServer) GetJoinedGroupList(ctx context.Context, req *pbgroup.GetJoinedGroupListReq) (*pbgroup.GetJoinedGroupListResp, error) {
 	resp := &pbgroup.GetJoinedGroupListResp{}
 	if err := authverify.CheckAccessV3(ctx, req.FromUserID, s.config); err != nil {
@@ -468,45 +657,71 @@ func (s *groupServer) GetGroupAllMember(ctx context.Context, req *pbgroup.GetGro
 	return resp, nil
 }
 
+// GetGroupMemberList 获取群成员列表
+// ctx: 上下文，用于传递请求范围的截止时间、取消信号等
+// req: 包含群ID、分页信息和搜索关键词的请求参数
+// 返回值: 群成员列表响应和可能的错误
 func (s *groupServer) GetGroupMemberList(ctx context.Context, req *pbgroup.GetGroupMemberListReq) (*pbgroup.GetGroupMemberListResp, error) {
+	// 初始化群成员列表响应对象
 	resp := &pbgroup.GetGroupMemberListResp{}
+	// 声明变量：总成员数、成员列表、错误信息
 	var (
 		total   int64
 		members []*relationtb.GroupMemberModel
 		err     error
 	)
+
+	// 判断是否有搜索关键词
 	if req.Keyword == "" {
+		// 无关键词时，直接分页查询群成员
 		total, members, err = s.db.PageGetGroupMember(ctx, req.GroupID, req.Pagination)
 	} else {
+		// 有关键词时，先查询该群所有成员
 		members, err = s.db.FindGroupMemberAll(ctx, req.GroupID)
 	}
+
+	// 检查数据库查询是否出错
 	if err != nil {
 		return nil, err
 	}
+
+	// 填充群成员的详细信息（可能是补充用户资料等操作）
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
+
+	// 再次检查是否有搜索关键词（需要处理搜索逻辑）
 	if req.Keyword != "" {
+		// 创建一个新的切片用于存储符合搜索条件的成员
 		groupMembers := make([]*relationtb.GroupMemberModel, 0)
+		// 遍历所有成员，筛选出符合关键词的成员
 		for _, member := range members {
+			// 匹配用户ID
 			if member.UserID == req.Keyword {
 				groupMembers = append(groupMembers, member)
-				total++
-				continue
+				total++  // 累加符合条件的成员总数
+				continue // 继续下一个成员的检查
 			}
+			// 匹配昵称
 			if member.Nickname == req.Keyword {
 				groupMembers = append(groupMembers, member)
-				total++
-				continue
+				total++  // 累加符合条件的成员总数
+				continue // 继续下一个成员的检查
 			}
 		}
 
+		// 对筛选后的成员列表进行分页处理
 		GMembers := utils.Paginate(groupMembers, int(req.Pagination.GetPageNumber()), int(req.Pagination.GetShowNumber()))
+		// 将数据库模型批量转换为protobuf模型并赋值给响应
 		resp.Members = utils.Batch(convert.Db2PbGroupMember, GMembers)
+		// 设置符合条件的成员总数
 		resp.Total = uint32(total)
 		return resp, nil
 	}
+
+	// 无搜索关键词时，直接使用分页查询的结果
 	resp.Total = uint32(total)
+	// 将数据库模型批量转换为protobuf模型并赋值给响应
 	resp.Members = utils.Batch(convert.Db2PbGroupMember, members)
 	return resp, nil
 }
@@ -699,39 +914,74 @@ func (s *groupServer) GetGroupApplicationList(ctx context.Context, req *pbgroup.
 }
 
 func (s *groupServer) GetGroupsInfo(ctx context.Context, req *pbgroup.GetGroupsInfoReq) (*pbgroup.GetGroupsInfoResp, error) {
+
+	// 创建返回的响应结构体
 	resp := &pbgroup.GetGroupsInfoResp{}
+	// 检查请求的群组ID列表是否为空
 	if len(req.GroupIDs) == 0 {
-		return nil, errs.ErrArgs.Wrap("groupID is empty")
+		return nil, errs.ErrArgs.Wrap("groupID is empty") // 群组ID为空，返回参数错误
 	}
+	// 从数据库查找所有请求的群组信息
 	groups, err := s.db.FindGroup(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err
+		return nil, err // 查找群组信息失败，返回错误
 	}
+	// 获取每个群组的成员数量映射
 	groupMemberNumMap, err := s.db.MapGroupMemberNum(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err
+		return nil, err // 获取群组成员数量失败，返回错误
 	}
+	// 查找每个群组的群主信息
 	owners, err := s.db.FindGroupsOwner(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err
+		return nil, err // 查找群主失败，返回错误
 	}
+	// 填充群主成员的其他信息（如昵称、头像等）
 	if err := s.PopulateGroupMember(ctx, owners...); err != nil {
-		return nil, err
+		return nil, err // 填充群主信息失败，返回错误
 	}
+	// 将群主信息列表转为以群组ID为key的map，便于后续查找
 	ownerMap := utils.SliceToMap(owners, func(e *relationtb.GroupMemberModel) string {
 		return e.GroupID
 	})
+	// 遍历所有群组，将数据库模型转换为响应的群组信息结构体
 	resp.GroupInfos = utils.Slice(groups, func(e *relationtb.GroupModel) *sdkws.GroupInfo {
 		var ownerUserID string
+		// 获取群主用户ID
 		if owner, ok := ownerMap[e.GroupID]; ok {
 			ownerUserID = owner.UserID
 		}
+		// 数据库模型转为响应结构体，包含群主ID和成员数量
 		return convert.Db2PbGroupInfo(e, ownerUserID, groupMemberNumMap[e.GroupID])
 	})
+
+	//	fmt.Printf("我看看  %+v\n", resp.GroupInfos)
+
+	// 返回群组信息列表响应
+	return resp, nil
+}
+
+// 获取聊天室信息
+func (s *groupServer) GetRoomInfo(ctx context.Context, req *pbgroup.GetRoomInfoReq) (*pbgroup.GetRoomInfoResp, error) {
+	// 创建返回的响应结构体
+	resp := &pbgroup.GetRoomInfoResp{}
+	// 检查请求的群组ID列表是否为空
+	if len(req.RoomID) == 0 {
+		return nil, errs.ErrArgs.Wrap("groupID is empty") // 群组ID为空，返回参数错误
+	}
+	// 从数据库查找所有请求的群组信息
+	info, err := s.db.GetRoomInfo(ctx, req.RoomID)
+	if err != nil {
+		return nil, errs.ErrArgs.Wrap(err.Error())
+	}
+	resp.RoomInfo = info
+
+	// 返回群组信息列表响应
 	return resp, nil
 }
 
 func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup.GroupApplicationResponseReq) (*pbgroup.GroupApplicationResponseResp, error) {
+
 	defer log.ZInfo(ctx, utils.GetFuncName()+" Return")
 	if !utils.Contain(req.HandleResult, constant.GroupResponseAgree, constant.GroupResponseRefuse) {
 		return nil, errs.ErrArgs.Wrap("HandleResult unknown")
@@ -881,6 +1131,95 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 	return resp, nil
 }
 
+// JoinRoom 加入聊天室
+func (s *groupServer) JoinRoom(ctx context.Context, req *pbgroup.JoinGroupReq) (resp *pbgroup.JoinRoomResp, err error) {
+
+	// 函数返回时记录日志
+	defer log.ZInfo(ctx, "JoinGroup.Return")
+	// 获取邀请人的用户信息
+	user, err := s.User.GetUserInfo(ctx, req.InviterUserID)
+	if err != nil {
+		return nil, err // 查询用户失败，返回错误
+	}
+	// 获取群组信息
+	group, err := s.db.TakeGroup(ctx, req.GroupID)
+	if err != nil {
+		return nil, err // 查询群组失败，返回错误
+	}
+	// 判断群组是否已经被解散
+	if group.Status == constant.GroupStatusDismissed {
+		return nil, errs.ErrDismissedAlready.Wrap() // 已解散，返回错误
+	}
+	// 检查用户是否已经在群组中
+	_, err = s.db.TakeGroupMember(ctx, req.GroupID, req.InviterUserID)
+	if err == nil {
+		return nil, errs.ErrArgs.Wrap("already in group") // 已在群组，返回错误
+	} else if !s.IsNotFound(err) && utils.Unwrap(err) != errs.ErrRecordNotFound {
+		return nil, err // 不是未找到记录的错误，直接返回错误
+	}
+	// 记录日志，展示群组信息及是否需要验证
+	log.ZInfo(ctx, "JoinGroup.groupInfo", "group", group, "eq", group.NeedVerification == constant.Directly)
+	resp = &pbgroup.JoinRoomResp{}
+	// 判断群组是否允许直接加入     //////是是是
+	if group.NeedVerification == constant.Directly {
+		// 构造群成员模型
+		groupMember := &relationtb.GroupMemberModel{
+			GroupID:        group.GroupID, // 群组ID
+			UserID:         user.UserID,   // 用户ID
+			Nickname:       user.Nickname,
+			FaceURL:        user.FaceURL,
+			RoleLevel:      constant.GroupOrdinaryUsers, // 普通成员
+			OperatorUserID: mcontext.GetOpUserID(ctx),   // 操作人ID
+			InviterUserID:  req.InviterUserID,           // 邀请人ID
+			JoinTime:       time.Now(),                  // 加入时间
+			MuteEndTime:    time.UnixMilli(0),           // 禁言结束时间
+		}
+
+		///先缓存加入房间 如果无错误在向下执行  房间满返回错误
+		JoinMap, err := s.db.JoinRoomList(ctx, group.GroupID, user.UserID, user.FaceURL)
+		if err != nil {
+			return nil, err
+		}
+
+		// 创建群组成员
+		if err := s.db.CreateGroup(ctx, nil, []*relationtb.GroupMemberModel{groupMember}); err != nil {
+			return nil, err // 创建失败，返回错误
+		}
+
+		//创建群聊会话   取消群组会话
+		if err := s.conversationRpcClient.RoomGroupChatFirstCreateConversation(ctx, req.GroupID, []string{req.InviterUserID}); err != nil {
+			return nil, err // 创建会话失败，返回错误
+		}
+		// 发送成员进入群组通知
+		//s.Notification.RoomMemberEnterNotification(ctx, req.GroupID, req.InviterUserID)
+		//// 加入群组后回调
+		//if err = CallbackAfterJoinGroup(ctx, s.config, req); err != nil {
+		//	return nil, err // 回调失败，返回错误
+		//}
+
+		//查询群组成员
+		_, members, err1 := s.db.PageGetGroupMember(ctx, group.GroupID, &sdkws.RequestPagination{
+			PageNumber: 1,
+			ShowNumber: 8,
+		})
+
+		// 检查数据库查询是否出错
+		if err1 != nil {
+			return nil, err
+		}
+		resp = &pbgroup.JoinRoomResp{
+			Rooms:   JoinMap,
+			Members: utils.Batch(convert.Db2PbGroupMember, members), // 将数据库模型批量转换为protobuf模型并赋值给响应
+		}
+		s.Notification.RoomMemberEnterNotification(ctx, req.GroupID, req.InviterUserID, resp.Rooms)
+
+		// 返回成功响应
+		return resp, nil
+	}
+
+	return resp, nil
+}
+
 func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) (*pbgroup.QuitGroupResp, error) {
 	resp := &pbgroup.QuitGroupResp{}
 	if req.UserID == "" {
@@ -914,6 +1253,60 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 		return nil, err
 	}
 	return resp, nil
+}
+
+// QuitRoom 退出聊天室
+func (s *groupServer) QuitRoom(ctx context.Context, req *pbgroup.QuitGroupReq) (*pbgroup.QuitGroupResp, error) {
+	resp := &pbgroup.QuitGroupResp{}
+	if req.UserID == "" {
+		req.UserID = mcontext.GetOpUserID(ctx)
+	} else {
+		if err := authverify.CheckAccessV3(ctx, req.UserID, s.config); err != nil {
+			return nil, err
+		}
+	}
+
+	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.UserID)
+
+	if err != nil {
+		return nil, err
+	}
+	if member.RoleLevel == constant.GroupOwner {
+		return nil, errs.ErrNoPermission.Wrap("group owner can't quit")
+	}
+	if err := s.PopulateGroupMember(ctx, member); err != nil {
+		return nil, err
+	}
+	err = s.db.DeleteGroupMember(ctx, req.GroupID, []string{req.UserID})
+
+	///清空缓存
+	err = s.db.QuitRoomList(ctx, req.GroupID, req.UserID, member.FaceURL)
+	if err != nil {
+		return nil, errs.ErrArgs.Wrap(err.Error())
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	_ = s.Notification.RoomMemberQuitNotification(ctx, s.groupMemberDB2PB(member, 0))
+	if err := s.deleteRoomMemberAndSetConversationSeq(ctx, req.GroupID, []string{req.UserID}); err != nil {
+		return nil, err
+	}
+
+	// callback
+	if err := CallbackQuitGroup(ctx, s.config, req); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (s *groupServer) deleteRoomMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
+	conevrsationID := msgprocessor.GetConversationIDBySessionType(constant.GroupChatType, groupID)
+	maxSeq, err := s.msgRpcClient.GetConversationMaxSeq(ctx, conevrsationID)
+	if err != nil {
+		return err
+	}
+	return s.conversationRpcClient.SetConversationMaxSeq(ctx, userIDs, conevrsationID, maxSeq)
 }
 
 func (s *groupServer) deleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
@@ -1236,6 +1629,69 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 	return resp, nil
 }
 
+// 解散聊天室
+func (s *groupServer) DismissRoom(ctx context.Context, req *pbgroup.DismissGroupReq) (*pbgroup.DismissGroupResp, error) {
+	defer log.ZInfo(ctx, "DismissGroup.return")         // 方法返回时记录日志
+	resp := &pbgroup.DismissGroupResp{}                 // 创建返回响应对象
+	owner, err := s.db.TakeGroupOwner(ctx, req.GroupID) // 查询群主信息
+	if err != nil {
+		return nil, err // 查询群主失败返回错误
+	}
+	if !authverify.IsAppManagerUid(ctx, s.config) { // 判断操作人是否为App管理员
+		if owner.UserID != mcontext.GetOpUserID(ctx) { // 如果不是管理员则判断是否为群主
+			return nil, errs.ErrNoPermission.Wrap("not group owner") // 不是群主无权限
+		}
+	}
+	if err := s.PopulateGroupMember(ctx, owner); err != nil { // 填充群成员信息
+		return nil, err // 填充失败返回错误
+	}
+	group, err := s.db.TakeGroup(ctx, req.GroupID) // 查询群组详情
+	if err != nil {
+		return nil, err // 查询失败返回错误
+	}
+	if !req.DeleteMember && group.Status == constant.GroupStatusDismissed { // 如果不删除成员且群已解散
+		return nil, errs.ErrDismissedAlready.Wrap("group status is dismissed") // 群已解散，返回已解散错误
+	}
+	if err := s.db.DismissGroup(ctx, req.GroupID, req.DeleteMember); err != nil { // 执行解散群操作
+		return nil, err // 解散失败返回错误
+	}
+	if !req.DeleteMember { // 如果不删除群成员
+		num, err := s.db.FindGroupMemberNum(ctx, req.GroupID) // 查询群成员数量
+		if err != nil {
+			return nil, err // 查询失败返回错误
+		}
+		tips := &sdkws.GroupDismissedTips{
+			Group:  s.groupDB2PB(group, owner.UserID, num), // 构建群信息
+			OpUser: &sdkws.GroupMemberFullInfo{},           // 操作人信息
+		}
+		if mcontext.GetOpUserID(ctx) == owner.UserID { // 如果操作人为群主
+			tips.OpUser = s.groupMemberDB2PB(owner, 0) // 填充群主信息
+		}
+
+		//解散群组
+		err = s.db.DismissRoom(ctx, req.GroupID)
+		if err != nil {
+			return nil, errs.ErrArgs.Wrap(err.Error())
+		}
+
+		s.Notification.RoomDismissedNotification(ctx, tips) // 发送聊天室解散通知
+	}
+	membersID, err := s.db.FindGroupMemberUserID(ctx, group.GroupID) // 查询群成员ID列表
+	if err != nil {
+		return nil, err // 查询失败返回错误
+	}
+	reqCall := &callbackstruct.CallbackDisMissGroupReq{
+		GroupID:   req.GroupID,             // 群组ID
+		OwnerID:   owner.UserID,            // 群主ID
+		MembersID: membersID,               // 所有群成员ID
+		GroupType: string(group.GroupType), // 群类型
+	}
+	if err := CallbackDismissGroup(ctx, s.config, reqCall); err != nil { // 回调通知业务方群解散
+		return nil, err // 回调失败返回错误
+	}
+
+	return resp, nil // 返回响应
+}
 func (s *groupServer) MuteGroupMember(ctx context.Context, req *pbgroup.MuteGroupMemberReq) (*pbgroup.MuteGroupMemberResp, error) {
 	resp := &pbgroup.MuteGroupMemberResp{}
 	member, err := s.db.TakeGroupMember(ctx, req.GroupID, req.UserID)
@@ -1457,33 +1913,42 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 }
 
 func (s *groupServer) GetGroupAbstractInfo(ctx context.Context, req *pbgroup.GetGroupAbstractInfoReq) (*pbgroup.GetGroupAbstractInfoResp, error) {
+	// 创建响应结构体
 	resp := &pbgroup.GetGroupAbstractInfoResp{}
+	// 检查请求的群组ID列表是否为空
 	if len(req.GroupIDs) == 0 {
-		return nil, errs.ErrArgs.Wrap("groupIDs empty")
+		return nil, errs.ErrArgs.Wrap("groupIDs empty") // 群组ID为空，返回参数错误
 	}
+	// 检查群组ID列表是否有重复
 	if utils.Duplicate(req.GroupIDs) {
-		return nil, errs.ErrArgs.Wrap("groupIDs duplicate")
+		return nil, errs.ErrArgs.Wrap("groupIDs duplicate") // 群组ID重复，返回参数错误
 	}
+	// 从数据库查找群组信息
 	groups, err := s.db.FindGroup(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err
+		return nil, err // 查找群组失败，返回错误
 	}
+	// 检查请求的群组ID是否都在数据库查到
 	if ids := utils.Single(req.GroupIDs, utils.Slice(groups, func(group *relationtb.GroupModel) string {
 		return group.GroupID
 	})); len(ids) > 0 {
-		return nil, errs.ErrGroupIDNotFound.Wrap("not found group " + strings.Join(ids, ","))
+		return nil, errs.ErrGroupIDNotFound.Wrap("not found group " + strings.Join(ids, ",")) // 有群组未找到，返回错误
 	}
+	// 获取每个群组对应的用户成员信息
 	groupUserMap, err := s.db.MapGroupMemberUserID(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err
+		return nil, err // 获取群组成员失败，返回错误
 	}
+	// 检查所有群组都能查到成员信息
 	if ids := utils.Single(req.GroupIDs, utils.Keys(groupUserMap)); len(ids) > 0 {
-		return nil, errs.ErrGroupIDNotFound.Wrap(fmt.Sprintf("group %s not found member", strings.Join(ids, ",")))
+		return nil, errs.ErrGroupIDNotFound.Wrap(fmt.Sprintf("group %s not found member", strings.Join(ids, ","))) // 有群组查不到成员，返回错误
 	}
+	// 构建群组摘要信息列表
 	resp.GroupAbstractInfos = utils.Slice(groups, func(group *relationtb.GroupModel) *pbgroup.GroupAbstractInfo {
-		users := groupUserMap[group.GroupID]
-		return convert.Db2PbGroupAbstractInfo(group.GroupID, users.MemberNum, users.Hash)
+		users := groupUserMap[group.GroupID]                                              // 获取群组成员信息
+		return convert.Db2PbGroupAbstractInfo(group.GroupID, users.MemberNum, users.Hash) // 转换为响应格式
 	})
+	// 返回群组摘要信息响应
 	return resp, nil
 }
 

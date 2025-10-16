@@ -37,18 +37,31 @@ type GroupLocalCache struct {
 }
 
 func (g *GroupLocalCache) getGroupMemberIDs(ctx context.Context, groupID string) (val *listMap[string], err error) {
+	// 打印调试日志，记录请求的 groupID
 	log.ZDebug(ctx, "GroupLocalCache getGroupMemberIDs req", "groupID", groupID)
+	// 函数返回时，打印调试日志，记录返回值或错误
 	defer func() {
 		if err == nil {
+			// 如果没有错误，打印返回的成员ID列表
 			log.ZDebug(ctx, "GroupLocalCache getGroupMemberIDs return", "value", val)
 		} else {
+			// 如果有错误，打印错误信息
 			log.ZError(ctx, "GroupLocalCache getGroupMemberIDs return", err)
 		}
 	}()
-	return localcache.AnyValue[*listMap[string]](g.local.Get(ctx, cachekey.GetGroupMemberIDsKey(groupID), func(ctx context.Context) (any, error) {
-		log.ZDebug(ctx, "GroupLocalCache getGroupMemberIDs rpc", "groupID", groupID)
-		return newListMap(g.client.GetGroupMemberIDs(ctx, groupID))
-	}))
+	// 调用本地缓存工具 AnyValue，尝试从本地缓存获取群成员ID
+	// 如果缓存没有命中，则通过回调函数获取数据（即通过 RPC 请求获取群成员ID）
+	return localcache.AnyValue[*listMap[string]](
+		g.local.Get(ctx,
+			cachekey.GetGroupMemberIDsKey(groupID), // 构建缓存 key，基于 groupID
+			func(ctx context.Context) (any, error) { // 如果缓存没有，执行此回调
+				// 打印调试日志，记录通过 RPC 获取群成员ID的请求
+				log.ZDebug(ctx, "GroupLocalCache getGroupMemberIDs rpc", "groupID", groupID)
+				// 通过 g.client.GetGroupMemberIDs 调用 RPC 获取群成员ID，并包装成 listMap 类型
+				return newListMap(g.client.GetGroupMemberIDs(ctx, groupID))
+			},
+		),
+	)
 }
 
 func (g *GroupLocalCache) GetGroupMember(ctx context.Context, groupID, userID string) (val *sdkws.GroupMemberFullInfo, err error) {
