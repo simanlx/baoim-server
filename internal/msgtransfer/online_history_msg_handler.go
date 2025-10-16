@@ -318,7 +318,6 @@ func (och *OnlineHistoryRedisConsumerHandler) handleMsg(
 					log.ZWarn(ctx, "get group member ids error", err, "conversationID",
 						conversationID)
 				} else {
-
 					//创建会话
 					if err := och.conversationRpcClient.RoomGroupChatFirstCreateConversation(ctx,
 						storageList[0].GroupID, userIDs); err != nil {

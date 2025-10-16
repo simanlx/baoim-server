@@ -87,6 +87,11 @@ func (o *GroupApi) KickGroupMember(c *gin.Context) {
 	a2r.Call(group.GroupClient.KickGroupMember, o.Client, c)
 }
 
+// 踢出聊天室成员
+func (o *GroupApi) KickRoomMember(c *gin.Context) {
+	a2r.Call(group.GroupClient.KickRoomMember, o.Client, c)
+}
+
 func (o *GroupApi) GetGroupMembersInfo(c *gin.Context) {
 	a2r.Call(group.GroupClient.GetGroupMembersInfo, o.Client, c)
 }
@@ -119,7 +124,12 @@ func (o *GroupApi) MuteGroupMember(c *gin.Context) {
 func (o *GroupApi) CancelMuteGroupMember(c *gin.Context) {
 	a2r.Call(group.GroupClient.CancelMuteGroupMember, o.Client, c)
 }
-
+func (o *GroupApi) MuteRoomMember(c *gin.Context) {
+	a2r.Call(group.GroupClient.MuteRoomMember, o.Client, c)
+}
+func (o *GroupApi) CancelMuteRoomMember(c *gin.Context) {
+	a2r.Call(group.GroupClient.CancelMuteRoomMember, o.Client, c)
+}
 func (o *GroupApi) MuteGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.MuteGroup, o.Client, c)
 }

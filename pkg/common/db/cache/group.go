@@ -102,7 +102,7 @@ type GroupCache interface {
 	// 原子操作：解散房间，清除redis缓存、从积分集合移除
 	DismissRoomCache(ctx context.Context, roomID string) error
 	// 原子操作：剔出房间成员，将房间位置替换为"0"（禁止站位）
-	KickRoomMemberCache(ctx context.Context, roomID string, uid string) error
+	KickRoomMemberCache(ctx context.Context, roomID string, uid string, img string) error
 	// 原子操作：关闭指定位置，将指定位置替换为"0"（禁止站位）
 	CloseRoomSeatCache(ctx context.Context, roomID string, idx int) error
 	// 原子操作：打开房间，将指定位置的"0"替换为""（允许站位）
@@ -402,47 +402,46 @@ return cjson.encode({ms = ms, imgs = imgs})
 }
 
 // 原子操作：剔出房间成员，将房间位置替换为"0"，并删除对应头像
-func (g *GroupCacheRedis) KickRoomMemberCache(ctx context.Context, roomID string, uid string) error {
+func (g *GroupCacheRedis) KickRoomMemberCache(ctx context.Context, roomID string, uid string, img string) error {
 	key := fmt.Sprintf("ROOM:%s", roomID)
 	luaScript := `
 if redis.call("EXISTS", KEYS[1]) == 0 then
   return {err="room not found"}
 end
-local ms_json = redis.call("HGET", KEYS[1], "ms")
-local imgs_json = redis.call("HGET", KEYS[1], "imgs")
+local data = redis.call("HGETALL", KEYS[1])
+local ms_json = nil
+local imgs_json = nil
+for i=1,#data,2 do
+  if data[i] == "ms" then ms_json = data[i+1] end
+  if data[i] == "imgs" then imgs_json = data[i+1] end
+end
 local ms = {}
-local imgs = {}
 if ms_json then ms = cjson.decode(ms_json) end
-if imgs_json then imgs = cjson.decode(imgs_json) end
-local found = false
-local img_to_remove = nil
+local removed = false
 for i=1,8 do
   if ms[i] == ARGV[1] then
     ms[i] = "0"
-    -- 找到对应头像
-    if imgs[i] then
-      img_to_remove = imgs[i]
-    end
-    imgs[i] = nil
-    found = true
+    removed = true
     break
   end
 end
-if not found then
+if not removed then
   return {err="uid not in room"}
 end
--- 重新整理imgs，移除空位
-local new_imgs = {}
-for i=1,#imgs do
-  if imgs[i] ~= nil then
-    table.insert(new_imgs, imgs[i])
+local imgs = {}
+if imgs_json then imgs = cjson.decode(imgs_json) end
+local img_url = ARGV[2]
+for i=#imgs,1,-1 do
+  if imgs[i] == img_url then
+    table.remove(imgs, i)
+    break
   end
 end
 redis.call("HSET", KEYS[1], "ms", cjson.encode(ms))
-redis.call("HSET", KEYS[1], "imgs", cjson.encode(new_imgs))
-return cjson.encode({ms = ms, imgs = new_imgs})
+redis.call("HSET", KEYS[1], "imgs", cjson.encode(imgs))
+return cjson.encode({ms = ms, imgs = imgs})
 `
-	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, uid).Result()
+	res, err := g.rdb.Eval(ctx, luaScript, []string{key}, uid, img).Result()
 	if err != nil {
 		return err
 	}
@@ -452,6 +451,7 @@ return cjson.encode({ms = ms, imgs = new_imgs})
 		if err != nil {
 			return err
 		}
+		// 处理 room not found 或 uid not in room 错误
 		if errStr, ok := result["err"].(string); ok && errStr != "" {
 			return fmt.Errorf(errStr)
 		}

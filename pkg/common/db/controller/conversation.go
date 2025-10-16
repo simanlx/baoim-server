@@ -47,7 +47,7 @@ type ConversationDatabase interface {
 	// CreateGroupChatConversation creates a group chat conversation for the specified group ID and user IDs.
 	CreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error
 
-	//增加 聊天室创建会话列表    测试
+	//增加 聊天室创建会话列表
 	RoomCreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error
 	// GetConversationIDs retrieves conversation IDs for a given user.
 	GetConversationIDs(ctx context.Context, userID string) ([]string, error)
@@ -274,6 +274,9 @@ func (c *conversationDatabase) CreateGroupChatConversation(ctx context.Context, 
 			conversation := relationtb.ConversationModel{ConversationType: constant.SuperGroupChatType, GroupID: groupID, OwnerUserID: v, ConversationID: conversationID}
 			conversations = append(conversations, &conversation)
 			cache = cache.DelConversations(v, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID)
+
+			//如果用户会话未创建过 设置用户的最小seq为群组的最大seq
+			_ = cache.SetConversationUserMinAndMaxSeq(ctx, conversationID, v) // 设置用户会话的最小和最大序列为0
 		}
 		cache = cache.DelConversationIDs(notExistUserIDs...).DelUserConversationIDsHash(notExistUserIDs...)
 		if len(conversations) > 0 {
@@ -299,7 +302,7 @@ func (c *conversationDatabase) RoomCreateGroupChatConversation(ctx context.Conte
 		cache := c.cache.NewCache()                                                                    // 新建缓存对象
 		conversationID := msgprocessor.GetConversationIDBySessionType(constant.GroupChatType, groupID) // 根据群聊类型和群ID获取会话ID
 
-		existConversationUserIDs, err := c.conversationDB.FindUserID(ctx, userIDs, []string{conversationID}) // 查询哪些用户已存在该会话
+		existConversationUserIDs, err := c.conversationDB.FindUserID(ctx, userIDs, []string{conversationID}) // 查询用户已存在该会话
 		if err != nil {
 			return err // 查询出错则返回错误
 		}

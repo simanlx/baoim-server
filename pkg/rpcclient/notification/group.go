@@ -685,6 +685,31 @@ func (g *GroupNotificationSender) GroupMemberMutedNotification(ctx context.Conte
 	return g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.GroupMemberMutedNotification, tips)
 }
 
+func (g *GroupNotificationSender) RoomMemberMutedNotification(ctx context.Context, groupID, groupMemberUserID string, mutedSeconds uint32) (err error) {
+	defer log.ZDebug(ctx, "return")
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, utils.GetFuncName(1)+" failed", err)
+		}
+	}()
+	group, err := g.getGroupInfo(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	user, err := g.getGroupMemberMap(ctx, groupID, []string{mcontext.GetOpUserID(ctx), groupMemberUserID})
+	if err != nil {
+		return err
+	}
+	tips := &sdkws.GroupMemberMutedTips{
+		Group: group, MutedSeconds: mutedSeconds,
+		OpUser: user[mcontext.GetOpUserID(ctx)], MutedUser: user[groupMemberUserID],
+	}
+	if err := g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return err
+	}
+	return g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.RoomGroupMemberMutedNotification, tips)
+}
+
 func (g *GroupNotificationSender) GroupMemberCancelMutedNotification(ctx context.Context, groupID, groupMemberUserID string) (err error) {
 	defer log.ZDebug(ctx, "return")
 	defer func() {
@@ -705,6 +730,29 @@ func (g *GroupNotificationSender) GroupMemberCancelMutedNotification(ctx context
 		return err
 	}
 	return g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.GroupMemberCancelMutedNotification, tips)
+}
+
+// /取消聊天室 禁言
+func (g *GroupNotificationSender) RoomMemberCancelMutedNotification(ctx context.Context, groupID, groupMemberUserID string) (err error) {
+	defer log.ZDebug(ctx, "return")
+	defer func() {
+		if err != nil {
+			log.ZError(ctx, utils.GetFuncName(1)+" failed", err)
+		}
+	}()
+	group, err := g.getGroupInfo(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	user, err := g.getGroupMemberMap(ctx, groupID, []string{mcontext.GetOpUserID(ctx), groupMemberUserID})
+	if err != nil {
+		return err
+	}
+	tips := &sdkws.GroupMemberCancelMutedTips{Group: group, OpUser: user[mcontext.GetOpUserID(ctx)], MutedUser: user[groupMemberUserID]}
+	if err := g.fillOpUser(ctx, &tips.OpUser, tips.Group.GroupID); err != nil {
+		return err
+	}
+	return g.Notification(ctx, mcontext.GetOpUserID(ctx), group.GroupID, constant.RoomGroupMemberCancelMutedNotification, tips)
 }
 
 func (g *GroupNotificationSender) GroupMutedNotification(ctx context.Context, groupID string) (err error) {

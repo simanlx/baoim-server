@@ -17,6 +17,7 @@ package cache
 import (
 	"BaoIM-Server/pkg/common/cachekey"
 	"BaoIM-Server/pkg/common/config"
+	"baoim/tools/errs"
 	"baoim/tools/log"
 	"context"
 	"math/big"
@@ -80,6 +81,9 @@ type ConversationCache interface {
 	DelConversationByConversationID(conversationIDs ...string) ConversationCache
 	GetConversationNotReceiveMessageUserIDs(ctx context.Context, conversationID string) ([]string, error)
 	DelConversationNotReceiveMessageUserIDs(conversationIDs ...string) ConversationCache
+
+	//设置会话最小seq
+	SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error
 }
 
 func NewConversationRedis(rdb redis.UniversalClient, opts rockscache.Options, db relationtb.ConversationModelInterface) ConversationCache {
@@ -126,6 +130,23 @@ func (c *ConversationRedisCache) NewCache() ConversationCache {
 		conversationDB: c.conversationDB,
 		expireTime:     c.expireTime,
 	}
+}
+
+// 创建聊天室 会话时设置用户的最小seq 为当前群组最大seq
+func (c *ConversationRedisCache) SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error {
+	key1 := "MAX_SEQ:" + conversationID
+	minSeq, err := c.rcClient.RawGet(ctx, key1)
+	if err != nil && errs.Unwrap(err) != redis.Nil {
+		// 非缓存未命中错误，且不为空返回错误
+		return err
+	}
+	if errs.Unwrap(err) == redis.Nil { //如果为空，默认最小seq为0
+		minSeq = "0"
+	}
+
+	//创建用户当亲会话最小seq
+	key := "CON_USER_MIN_SEQ:" + conversationID + "u:" + userID
+	return errs.Wrap(c.rcClient.RawSet(ctx, key, minSeq, 0))
 }
 
 func (c *ConversationRedisCache) getConversationKey(ownerUserID, conversationID string) string {

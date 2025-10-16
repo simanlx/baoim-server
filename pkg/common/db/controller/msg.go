@@ -528,21 +528,38 @@ func (db *commonMsgDatabase) findMsgInfoBySeq(ctx context.Context, userID, docID
 	return msgs, err
 }
 
+// getMsgBySeqsRange 根据序列范围获取消息
+// ctx: 上下文，用于传递请求上下文信息
+// userID: 用户ID，标识当前操作的用户
+// conversationID: 会话ID，标识要获取消息的会话
+// allSeqs: 所有需要查询的消息序列列表
+// begin: 序列范围的起始值
+// end: 序列范围的结束值
+// 返回值: 符合条件的消息列表；以及可能的错误
 func (db *commonMsgDatabase) getMsgBySeqsRange(ctx context.Context, userID string, conversationID string, allSeqs []int64, begin, end int64) (seqMsgs []*sdkws.MsgData, err error) {
+	// 输出调试日志，记录当前方法参数信息（会话ID、所有序列、起始序列、结束序列）
 	log.ZDebug(ctx, "getMsgBySeqsRange", "conversationID", conversationID, "allSeqs", allSeqs, "begin", begin, "end", end)
+	// 遍历消息存储中获取的文档ID与序列的映射关系（按会话ID和所有序列筛选）
 	for docID, seqs := range db.msg.GetDocIDSeqsMap(conversationID, allSeqs) {
+		// 输出调试日志，记录当前文档ID及对应的序列列表
 		log.ZDebug(ctx, "getMsgBySeqsRange", "docID", docID, "seqs", seqs)
+		// 根据文档ID、会话ID和序列列表查询消息详情
 		msgs, err := db.findMsgInfoBySeq(ctx, userID, docID, conversationID, seqs)
 		if err != nil {
+			// 若查询失败，返回错误
 			return nil, err
 		}
+		// 遍历查询到的消息，处理消息的已读状态并转换格式
 		for _, msg := range msgs {
+			// 若消息标记为已读，则同步设置消息体的已读状态
 			if msg.IsRead {
 				msg.Msg.IsRead = true
 			}
+			// 将数据库格式的消息转换为protobuf格式，并添加到结果列表中
 			seqMsgs = append(seqMsgs, convert.MsgDB2Pb(msg.Msg))
 		}
 	}
+	// 返回处理后的的消息列表和空错误（表示成功）
 	return seqMsgs, nil
 }
 
@@ -565,52 +582,86 @@ func (db *commonMsgDatabase) getMsgBySeqsRange(ctx context.Context, userID strin
 // For new users joining the group, if they don't need to receive old messages,
 // "userMinSeq" can be set as the same value as the conversation's "maxSeq" at the moment they join the group.
 // This ensures that their message retrieval starts from the point they joined.
+// GetMsgBySeqsRange在群聊的上下文中，我们有以下参数：
+//
+// 对话的“maxSeq”：它表示组对话中消息的最大值。
+// 对话的“minSeq”（默认值：1）：它表示组对话中消息的最小值。
+//
+// 对于用户对群组对话的看法，我们有以下参数：
+//
+// “userMaxSeq”：表示用户在组中检索消息的上限。如果未设置（默认值：0），
+// 这意味着上限与对话的“maxSeq”相同。
+// “userMinSeq”：它代表用户在组中检索消息的起点。如果未设置（默认值：0），
+// 这意味着起点与对话的“minSeq”相同。
+//
+// 这些参数的场景如下：
+//
+// 对于被踢出组的用户，可以将“userMaxSeq”设置为他们之前的最大值
+// 被踢出去。这限制了他们在一定程度上检索消息的能力。
+// 对于加入群组的新用户，如果他们不需要接收旧消息，
+// “userMinSeq”可以设置为与会话在加入组时的“maxSeq”相同的值。
+// 这确保了他们的消息检索从他们加入的点开始。
 func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (int64, int64, []*sdkws.MsgData, error) {
 
+	// 从缓存获取用户在该会话中的最小可检索序列（userMinSeq）
 	userMinSeq, err := db.cache.GetConversationUserMinSeq(ctx, conversationID, userID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
+		// 非缓存未命中错误，返回错误
+
 		return 0, 0, nil, err
 	}
+	// 从缓存获取会话的全局最小序列（minSeq）
 	minSeq, err := db.cache.GetMinSeq(ctx, conversationID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		return 0, 0, nil, err
 	}
+
+	// 确定用户实际可检索的最小序列：取userMinSeq和会话minSeq中的较大值
 	if userMinSeq > minSeq {
 		minSeq = userMinSeq
 	}
+
 	//"minSeq" represents the startSeq value that the user can retrieve.
+	// 如果用户可检索的最小序列大于请求的结束序列，说明无消息可返回
 	if minSeq > end {
 		log.ZInfo(ctx, "minSeq > end", "minSeq", minSeq, "end", end)
 		return 0, 0, nil, nil
 	}
+	//// 从缓存获取会话的全局最大序列（maxSeq）
 	maxSeq, err := db.cache.GetMaxSeq(ctx, conversationID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		return 0, 0, nil, err
 	}
 	log.ZDebug(ctx, "GetMsgBySeqsRange", "userMinSeq", userMinSeq, "conMinSeq", minSeq, "conMaxSeq", maxSeq, "userMaxSeq", userMaxSeq)
+	// 确定用户实际可检索的最大序列：若userMaxSeq非0且小于全局maxSeq，则使用userMaxSeq
 	if userMaxSeq != 0 {
 		if userMaxSeq < maxSeq {
 			maxSeq = userMaxSeq
 		}
 	}
 	//"maxSeq" represents the endSeq value that the user can retrieve.
-
+	// 修正请求的起始序列：若小于用户可检索的最小序列，则调整为minSeq
 	if begin < minSeq {
 		begin = minSeq
 	}
+	// 修正请求的结束序列：若大于用户可检索的最大序列，则调整为maxSeq
 	if end > maxSeq {
 		end = maxSeq
 	}
+	//“start”和“end”表示用户可以检索的实际startSeq和endSeq值。
 	//"begin" and "end" represent the actual startSeq and endSeq values that the user can retrieve.
 	if end < begin {
 		return 0, 0, nil, errs.ErrArgs.Wrap("seq end < begin")
 	}
+	// 生成待查询的序列列表
 	var seqs []int64
+	// 如果序列范围内的消息数量小于等于请求的最大数量，获取所有序列
 	if end-begin+1 <= num {
 		for i := begin; i <= end; i++ {
 			seqs = append(seqs, i)
 		}
 	} else {
+		// 否则从结束序列向前取num个序列
 		for i := end - num + 1; i <= end; i++ {
 			seqs = append(seqs, i)
 		}
@@ -628,12 +679,16 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 	//		break
 	//	}
 	//}
+
+	// 若序列列表为空，返回空结果
 	if len(seqs) == 0 {
 		return 0, 0, nil, nil
 	}
+	// 记录实际查询的序列范围（列表的第一个和最后一个序列）
 	newBegin := seqs[0]
 	newEnd := seqs[len(seqs)-1]
 	log.ZDebug(ctx, "GetMsgBySeqsRange", "first seqs", seqs, "newBegin", newBegin, "newEnd", newEnd)
+	// 从缓存中批量获取消息：返回命中的消息、未命中的序列、可能的错误
 	cachedMsgs, failedSeqs, err := db.cache.GetMessagesBySeq(ctx, conversationID, seqs)
 	if err != nil {
 		if err != redis.Nil {
@@ -641,14 +696,19 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 			log.ZError(ctx, "get message from redis exception", err, "conversationID", conversationID, "seqs", seqs)
 		}
 	}
+	// 存储最终有效的消息列表
 	var successMsgs []*sdkws.MsgData
+	// 处理缓存中命中的消息
 	if len(cachedMsgs) > 0 {
+		// 获取用户在该会话中删除的消息序列列表
 		delSeqs, err := db.cache.GetUserDelList(ctx, userID, conversationID)
 		if err != nil && errs.Unwrap(err) != redis.Nil {
 			return 0, 0, nil, err
 		}
-		var cacheDelNum int
+		// 过滤掉已删除的消息
+		var cacheDelNum int // 记录缓存中被删除的消息数量
 		for _, msg := range cachedMsgs {
+			// 若消息序列不在删除列表中，则加入有效消息列表
 			if !utils.Contain(msg.Seq, delSeqs...) {
 				successMsgs = append(successMsgs, msg)
 			} else {
@@ -656,19 +716,24 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 			}
 		}
 		log.ZDebug(ctx, "get delSeqs from redis", "delSeqs", delSeqs, "userID", userID, "conversationID", conversationID, "cacheDelNum", cacheDelNum)
+
+		// 补充获取被删除的消息数量（从起始序列向前找）
 		var reGetSeqsCache []int64
 		for i := 1; i <= cacheDelNum; {
-			newSeq := newBegin - int64(i)
-			if newSeq >= begin {
+			newSeq := newBegin - int64(i) // 从实际起始序列向前计算补充的序列
+			if newSeq >= begin {          // 确保补充的序列在请求的起始范围内
+				// 若补充的序列不在删除列表中，则加入待查询列表
 				if !utils.Contain(newSeq, delSeqs...) {
 					log.ZDebug(ctx, "seq del in cache, a new seq in range append", "new seq", newSeq)
 					reGetSeqsCache = append(reGetSeqsCache, newSeq)
-					i++
+					i++ //找到一个有效序列后，继续找下一个
 				}
 			} else {
+				// 超出请求的起始范围，停止补充
 				break
 			}
 		}
+		// 若有需要补充的序列，再次从缓存获取
 		if len(reGetSeqsCache) > 0 {
 			log.ZDebug(ctx, "reGetSeqsCache", "reGetSeqsCache", reGetSeqsCache)
 			cachedMsgs, failedSeqs2, err := db.cache.GetMessagesBySeq(ctx, conversationID, reGetSeqsCache)
@@ -678,7 +743,9 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 					log.ZError(ctx, "get message from redis exception", err, "conversationID", conversationID, "seqs", reGetSeqsCache)
 				}
 			}
+			// 合并未命中的序列
 			failedSeqs = append(failedSeqs, failedSeqs2...)
+			// 合并补充获取的有效消息
 			successMsgs = append(successMsgs, cachedMsgs...)
 		}
 	}
@@ -687,16 +754,18 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 		log.ZDebug(ctx, "msgs not exist in redis", "seqs", failedSeqs)
 	}
 	// get from cache or db
-
+	// 处理缓存未命中的序列（从数据库获取）
 	if len(failedSeqs) > 0 {
 		mongoMsgs, err := db.getMsgBySeqsRange(ctx, userID, conversationID, failedSeqs, begin, end)
 		if err != nil {
 
 			return 0, 0, nil, err
 		}
+		// 合并数据库获取的消息和缓存获取的消息
 		successMsgs = append(mongoMsgs, successMsgs...)
 	}
 
+	// 返回实际可检索的最小序列、最大序列、最终消息列表和空错误
 	return minSeq, maxSeq, successMsgs, nil
 }
 

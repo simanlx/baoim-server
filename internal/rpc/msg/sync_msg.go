@@ -26,50 +26,72 @@ import (
 	"baoim/tools/utils"
 )
 
+// PullMessageBySeqs 根据消息序列范围拉取消息
+// ctx: 上下文，用于传递请求范围、超时控制等
+// req: 拉取消息的请求参数，包含用户ID、消息序列范围等信息
+// 返回值: 拉取到的消息响应，包含普通消息和通知消息；以及可能的错误
 func (m *msgServer) PullMessageBySeqs(
 	ctx context.Context,
 	req *sdkws.PullMessageBySeqsReq,
 ) (*sdkws.PullMessageBySeqsResp, error) {
 
+	// 初始化消息响应对象
 	resp := &sdkws.PullMessageBySeqsResp{}
+	// 初始化普通消息映射，key为会话ID，value为该会话下的拉取消息结果
 	resp.Msgs = make(map[string]*sdkws.PullMsgs)
+	// 初始化通知消息映射，结构同普通消息映射
 	resp.NotificationMsgs = make(map[string]*sdkws.PullMsgs)
+	// 遍历请求中的每个消息序列范围
 	for _, seq := range req.SeqRanges {
+		// 判断当前会话是否为通知会话
 		if !msgprocessor.IsNotification(seq.ConversationID) {
+			// 非通知会话：从本地缓存获取会话信息
 			conversation, err := m.ConversationLocalCache.GetConversation(ctx, req.UserID, seq.ConversationID)
 			if err != nil {
+				// 获取会话信息失败，记录错误日志并继续处理下一个序列范围
 				log.ZError(ctx, "GetConversation error", err, "conversationID", seq.ConversationID)
 				continue
 			}
+			// 从消息数据库中根据序列范围拉取消息
+			// 参数包括：用户ID、会话ID、开始序列、结束序列、拉取数量、会话最大序列
 			minSeq, maxSeq, msgs, err := m.MsgDatabase.GetMsgBySeqsRange(ctx, req.UserID, seq.ConversationID,
 				seq.Begin, seq.End, seq.Num, conversation.MaxSeq)
 			if err != nil {
+				// 拉取消息失败，记录警告日志并继续处理下一个序列范围
 				log.ZWarn(ctx, "GetMsgBySeqsRange error", err, "conversationID", seq.ConversationID, "seq", seq)
 				continue
 			}
+			// 标记是否已拉取到范围末尾
 			var isEnd bool
 			switch req.Order {
 			case sdkws.PullOrder_PullOrderAsc:
+				// 升序拉取时，若最大序列小于等于请求结束序列，则表示已到末尾
 				isEnd = maxSeq <= seq.End
 			case sdkws.PullOrder_PullOrderDesc:
+				// 降序拉取时，若请求开始序列小于等于最小序列，则表示已到末尾
 				isEnd = seq.Begin <= minSeq
 			}
+			// 若拉取到的消息为空，记录警告日志并继续处理下一个序列范围
 			if len(msgs) == 0 {
 				log.ZWarn(ctx, "not have msgs", nil, "conversationID", seq.ConversationID, "seq", seq)
 				continue
 			}
+			// 将拉取到的普通消息存入响应中
 			resp.Msgs[seq.ConversationID] = &sdkws.PullMsgs{Msgs: msgs, IsEnd: isEnd}
 		} else {
+			// 通知会话：构建序列列表（从开始序列到结束序列的所有整数）
 			var seqs []int64
 			for i := seq.Begin; i <= seq.End; i++ {
 				seqs = append(seqs, i)
 			}
+			// 从消息数据库中根据序列列表拉取通知消息
 			minSeq, maxSeq, notificationMsgs, err := m.MsgDatabase.GetMsgBySeqs(ctx, req.UserID, seq.ConversationID, seqs)
 			if err != nil {
+				// 拉取通知消息失败，记录警告日志并继续处理下一个序列范围
 				log.ZWarn(ctx, "GetMsgBySeqs error", err, "conversationID", seq.ConversationID, "seq", seq)
-
 				continue
 			}
+			// 标记是否已拉取到范围末尾（逻辑同普通消息）
 			var isEnd bool
 			switch req.Order {
 			case sdkws.PullOrder_PullOrderAsc:
@@ -77,14 +99,16 @@ func (m *msgServer) PullMessageBySeqs(
 			case sdkws.PullOrder_PullOrderDesc:
 				isEnd = seq.Begin <= minSeq
 			}
+			// 若拉取到的通知消息为空，记录警告日志并继续处理下一个序列范围
 			if len(notificationMsgs) == 0 {
 				log.ZWarn(ctx, "not have notificationMsgs", nil, "conversationID", seq.ConversationID, "seq", seq)
-
 				continue
 			}
+			// 将拉取到的通知消息存入响应中
 			resp.NotificationMsgs[seq.ConversationID] = &sdkws.PullMsgs{Msgs: notificationMsgs, IsEnd: isEnd}
 		}
 	}
+	// 返回拉取结果（即使部分序列范围处理失败，仍返回已成功拉取的消息）
 	return resp, nil
 }
 

@@ -44,6 +44,9 @@ type GroupDatabase interface {
 
 	//退出聊天室
 	QuitRoomList(ctx context.Context, groupID string, uid string, img string) error
+
+	//踢出聊天室
+	KickRoomList(ctx context.Context, roomID string, uid string, img string) error
 	// 解散聊天室
 	DismissRoom(ctx context.Context, roomID string) error
 	//从redis中回去当前聊天室信息
@@ -233,10 +236,16 @@ func (g *groupDatabase) QuitRoomList(ctx context.Context, roomID string, uid str
 	return g.cache.RemoveRoomCache(ctx, roomID, uid, img)
 }
 
+// 退出聊天室
+func (g *groupDatabase) KickRoomList(ctx context.Context, roomID string, uid string, img string) error {
+	return g.cache.KickRoomMemberCache(ctx, roomID, uid, img)
+}
+
 // 解散聊天室
 func (g *groupDatabase) DismissRoom(ctx context.Context, roomID string) error {
 	return g.cache.DismissRoomCache(ctx, roomID)
 }
+
 func (g *groupDatabase) GetRoomInfo(ctx context.Context, roomID string) (*sdkws.RoomInfo, error) {
 	return g.cache.GetRoomInfoCache(ctx, roomID)
 }
