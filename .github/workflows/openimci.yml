@@ -56,10 +56,10 @@ jobs:
         os: [ubuntu-latest]
     steps:
     - name: Setup
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       
     - name: Set up Go ${{ matrix.go_version }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go_version }}
       id: go
@@ -123,7 +123,7 @@ jobs:
         os: ["ubuntu-latest"]
     steps:
     - name: Checkout and Install OpenIM
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Install Task
       uses: arduino/setup-task@v1
       with:
@@ -151,7 +151,7 @@ jobs:
         echo "EOF" >> $GITHUB_ENV
 
     - name: Comment PR
-      uses: thollander/actions-comment-pull-request@v2
+      uses: thollander/actions-comment-pull-request@v3
       if: runner.os == 'Linux' && matrix.arch == 'amd64'
       with:
         message: |
@@ -188,10 +188,10 @@ jobs:
         arch: [arm64, armv7, amd64]
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Go ${{ matrix.go_version }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go_version }}
       id: go
@@ -274,9 +274,9 @@ jobs:
       name: openim
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Set up Go ${{ matrix.go_version }}
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: ${{ matrix.go_version }}
       id: go
