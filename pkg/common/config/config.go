@@ -181,6 +181,7 @@ type GlobalConfig struct {
 		OpenImMessagePort        []int `yaml:"openImMessagePort"`
 		OpenImMessageGatewayPort []int `yaml:"openImMessageGatewayPort"`
 		OpenImGroupPort          []int `yaml:"openImGroupPort"`
+		OpenImRoomPort           []int `yaml:"openImRoomPort"` //增加直播聊天室服务rpc
 		OpenImAuthPort           []int `yaml:"openImAuthPort"`
 		OpenImPushPort           []int `yaml:"openImPushPort"`
 		OpenImConversationPort   []int `yaml:"openImConversationPort"`
@@ -195,6 +196,7 @@ type GlobalConfig struct {
 		OpenImPushName           string `yaml:"openImPushName"`
 		OpenImMessageGatewayName string `yaml:"openImMessageGatewayName"`
 		OpenImGroupName          string `yaml:"openImGroupName"`
+		OpenImRoomName           string `yaml:"openImRoomName"`
 		OpenImAuthName           string `yaml:"openImAuthName"`
 		OpenImConversationName   string `yaml:"openImConversationName"`
 		OpenImThirdName          string `yaml:"openImThirdName"`
@@ -333,6 +335,7 @@ type GlobalConfig struct {
 		MessagePrometheusPort         []int  `yaml:"messagePrometheusPort"`
 		MessageGatewayPrometheusPort  []int  `yaml:"messageGatewayPrometheusPort"`
 		GroupPrometheusPort           []int  `yaml:"groupPrometheusPort"`
+		RoomPrometheusPort            []int  `yaml:"roomPrometheusPort"`
 		AuthPrometheusPort            []int  `yaml:"authPrometheusPort"`
 		PushPrometheusPort            []int  `yaml:"pushPrometheusPort"`
 		ConversationPrometheusPort    []int  `yaml:"conversationPrometheusPort"`

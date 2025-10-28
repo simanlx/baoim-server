@@ -50,6 +50,7 @@ openim::rpc::service_name() {
     openim-rpc-friend
     openim-rpc-msg
     openim-rpc-group
+    openim-rpc-room
     openim-rpc-auth
     openim-rpc-conversation
     openim-rpc-third
@@ -78,6 +79,7 @@ openim::rpc::service_port() {
     ${OPENIM_MESSAGE_PORT}         # Message service 10130
     # ${OPENIM_MESSAGE_GATEWAY_PORT} # Message gateway 10140
     ${OPENIM_GROUP_PORT}           # Group service 10150
+    ${OPENIM_ROOM_PORT}           # Group service 11110
     ${OPENIM_AUTH_PORT}            # Authorization service 10160
     # ${OPENIM_PUSH_PORT}            # Push service 10170
     ${OPENIM_CONVERSATION_PORT}    # Conversation service 10180
@@ -96,6 +98,7 @@ openim::rpc::prometheus_port() {
     ${FRIEND_PROM_PORT}             # Prometheus port for friend service
     ${MESSAGE_PROM_PORT}            # Prometheus port for message service
     ${GROUP_PROM_PORT}              # Prometheus port for group service
+    ${ROOM_PROM_PORT}              # Prometheus port for ROOM service
     ${AUTH_PROM_PORT}               # Prometheus port for authentication service
     ${CONVERSATION_PROM_PORT}       # Prometheus port for conversation service
     ${THIRD_PROM_PORT}              # Prometheus port for third-party integrations service

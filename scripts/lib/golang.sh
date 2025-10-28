@@ -77,6 +77,7 @@ openim::golang::server_targets() {
     openim-rpc-conversation
     openim-rpc-friend
     openim-rpc-group
+    openim-rpc-room
     openim-rpc-msg
     openim-rpc-third
     openim-rpc-user
@@ -94,6 +95,7 @@ openim::golang::server_targets_no_transfer() {
     openim-rpc-conversation
     openim-rpc-friend
     openim-rpc-group
+    openim-rpc-room
     openim-rpc-msg
     openim-rpc-third
     openim-rpc-user
@@ -112,6 +114,7 @@ openim::golang::server_targets_no_cmdutils() {
     openim-rpc-conversation
     openim-rpc-friend
     openim-rpc-group
+     openim-rpc-room
     openim-rpc-msg
     openim-rpc-third
     openim-rpc-user
@@ -201,6 +204,7 @@ readonly OPENIM_TOOLS_TARGETS
 readonly OPENIM_TOOLS_BINARIES=("${OPENIM_TOOLS_TARGETS[@]##*/}")
 
 # The set of server targets we build docker images for
+#我们为其构建docker镜像的服务器目标集
 openim::golang::server_image_targets() {
   # NOTE: this contains cmd targets for openim::build::get_docker_wrapped_binaries
   local targets=(
@@ -214,6 +218,7 @@ openim::golang::server_image_targets() {
     cmd/openim-rpc-conversation
     cmd/openim-rpc-friend
     cmd/openim-rpc-group
+    cmd/openim-rpc-room
     cmd/openim-rpc-msg
     cmd/openim-rpc-third
     cmd/openim-rpc-user

@@ -108,6 +108,13 @@ func (a *RpcCmd) GetPortFromConfig(portType string) int {
 		if portType == constant.FlagPrometheusPort {
 			return a.config.Prometheus.GroupPrometheusPort[0]
 		}
+	case RpcRoomServer: //增加直播聊天室rtc
+		if portType == constant.FlagPort {
+			return a.config.RpcPort.OpenImRoomPort[0]
+		}
+		if portType == constant.FlagPrometheusPort {
+			return a.config.Prometheus.RoomPrometheusPort[0]
+		}
 	case RpcMsgServer:
 		if portType == constant.FlagPort {
 			return a.config.RpcPort.OpenImMessagePort[0]
@@ -145,12 +152,15 @@ func (a *RpcCmd) GetRpcRegisterNameFromConfig() (string, error) {
 		return a.config.RpcRegisterName.OpenImFriendName, nil
 	case RpcGroupServer:
 		return a.config.RpcRegisterName.OpenImGroupName, nil
+	case RpcRoomServer:
+		return a.config.RpcRegisterName.OpenImRoomName, nil //增加聊天室rtc
 	case RpcMsgServer:
 		return a.config.RpcRegisterName.OpenImMsgName, nil
 	case RpcThirdServer:
 		return a.config.RpcRegisterName.OpenImThirdName, nil
 	case RpcUserServer:
 		return a.config.RpcRegisterName.OpenImUserName, nil
+
 	}
 	return "", errs.Wrap(errors.New("can not get rpc register name"), a.Name)
 }

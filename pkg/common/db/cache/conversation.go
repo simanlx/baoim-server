@@ -95,6 +95,7 @@ func NewConversationRedis(rdb redis.UniversalClient, opts rockscache.Options, db
 	mc.SetRawRedisClient(rdb)
 	return &ConversationRedisCache{
 		rcClient:       rcClient,
+		rdb:            rdb,
 		metaCache:      mc,
 		conversationDB: db,
 		expireTime:     conversationExpireTime,
@@ -104,6 +105,7 @@ func NewConversationRedis(rdb redis.UniversalClient, opts rockscache.Options, db
 type ConversationRedisCache struct {
 	metaCache
 	rcClient       *rockscache.Client
+	rdb            redis.UniversalClient
 	conversationDB relationtb.ConversationModelInterface
 	expireTime     time.Duration
 }
@@ -132,22 +134,64 @@ func (c *ConversationRedisCache) NewCache() ConversationCache {
 	}
 }
 
-// 创建聊天室 会话时设置用户的最小seq 为当前群组最大seq
-func (c *ConversationRedisCache) SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error {
-	key1 := "MAX_SEQ:" + conversationID
-	minSeq, err := c.rcClient.RawGet(ctx, key1)
-	if err != nil && errs.Unwrap(err) != redis.Nil {
-		// 非缓存未命中错误，且不为空返回错误
-		return err
-	}
-	if errs.Unwrap(err) == redis.Nil { //如果为空，默认最小seq为0
-		minSeq = "0"
-	}
-
-	//创建用户当亲会话最小seq
-	key := "CON_USER_MIN_SEQ:" + conversationID + "u:" + userID
-	return errs.Wrap(c.rcClient.RawSet(ctx, key, minSeq, 0))
+// 键名生成函数
+func (c *ConversationRedisCache) maxSeqKey(conversationID string) string {
+	return "MAX_SEQ:" + conversationID
 }
+
+func (c *ConversationRedisCache) userMinSeqKey(conversationID, userID string) string {
+	return "CON_USER_MIN_SEQ:" + conversationID + "u:" + userID
+}
+
+func (c *ConversationRedisCache) SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error {
+	maxSeqKey := c.maxSeqKey(conversationID)
+	userMinSeqKey := c.userMinSeqKey(conversationID, userID)
+
+	// 使用Lua脚本保证原子性：读取maxSeq → 计算userNextMinSeq → 写入
+	script := redis.NewScript(`
+        local maxSeq = redis.call('GET', KEYS[1])
+        if not maxSeq then
+            maxSeq = "0" -- 键不存在时默认0（字符串类型，避免后续转换问题）
+        end
+        local userNextMinSeq = tonumber(maxSeq) + 1
+        redis.call('SET', KEYS[2], userNextMinSeq) 
+        return userNextMinSeq
+    `)
+
+	_, err := script.Run(ctx, c.rdb, []string{maxSeqKey, userMinSeqKey}, 0).Result()
+	if err != nil {
+
+		return errs.Wrap(err)
+	}
+	return nil
+}
+
+// 创建聊天室 会话时设置用户的最小seq 为当前群组最大seq
+//func (c *ConversationRedisCache) SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error {
+//	//获取群组最大seq
+//	maxSeqKey := "MAX_SEQ:" + conversationID
+//
+//	// 1. 读取当前最大 seq（带错误处理，避免忽略异常）
+//	maxSeqStr, err := c.rdb.Get(ctx, maxSeqKey).Result()
+//	if err != nil {
+//		if !errors.Is(err, redis.Nil) { // 非“键不存在”的错误才返回
+//			return errs.Wrap(err, "获取最大seq失败")
+//		}
+//		// 键不存在时，默认最大 seq 为 0
+//		maxSeqStr = "0"
+//	}
+//
+//	// 2. 转换为数字并计算用户最小 seq（当前最大 seq + 1，确保包含最新消息）
+//	maxSeq, err := strconv.ParseInt(maxSeqStr, 10, 64)
+//	if err != nil {
+//		return errs.Wrap(err, "解析seq失败")
+//	}
+//	userMinSeq := maxSeq + 1
+//
+//	//创建用户当亲会话最小seq
+//	userMinSeqKey := "CON_USER_MIN_SEQ:" + conversationID + "u:" + userID
+//	return errs.Wrap(c.rdb.Set(ctx, userMinSeqKey, userMinSeq, 0).Err())
+//}
 
 func (c *ConversationRedisCache) getConversationKey(ownerUserID, conversationID string) string {
 	return cachekey.GetConversationKey(ownerUserID, conversationID)

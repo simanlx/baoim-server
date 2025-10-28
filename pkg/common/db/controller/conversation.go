@@ -270,13 +270,12 @@ func (c *conversationDatabase) CreateGroupChatConversation(ctx context.Context, 
 		}
 		notExistUserIDs := utils.DifferenceString(userIDs, existConversationUserIDs)
 		var conversations []*relationtb.ConversationModel
+
 		for _, v := range notExistUserIDs {
 			conversation := relationtb.ConversationModel{ConversationType: constant.SuperGroupChatType, GroupID: groupID, OwnerUserID: v, ConversationID: conversationID}
 			conversations = append(conversations, &conversation)
 			cache = cache.DelConversations(v, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID)
 
-			//如果用户会话未创建过 设置用户的最小seq为群组的最大seq
-			_ = cache.SetConversationUserMinAndMaxSeq(ctx, conversationID, v) // 设置用户会话的最小和最大序列为0
 		}
 		cache = cache.DelConversationIDs(notExistUserIDs...).DelUserConversationIDsHash(notExistUserIDs...)
 		if len(conversations) > 0 {
@@ -317,6 +316,10 @@ func (c *conversationDatabase) RoomCreateGroupChatConversation(ctx context.Conte
 			} // 构建会话模型
 			conversations = append(conversations, &conversation)                                                      // 加入会话模型切片
 			cache = cache.DelConversations(v, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID) // 清理缓存相关数据
+
+			//如果用户会话未创建过 设置用户的最小seq为群组的最大seq
+			_ = c.cache.SetConversationUserMinAndMaxSeq(ctx, conversationID, v) // 设置用户会话的最小和最大序列为0
+
 		}
 		cache = cache.DelConversationIDs(notExistUserIDs...).DelUserConversationIDsHash(notExistUserIDs...) // 删除未存在会话用户的会话ID和hash缓存
 		if len(conversations) > 0 {                                                                         // 如果有需要新建的会话

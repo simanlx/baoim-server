@@ -311,6 +311,8 @@ readonly OPENIM_MESSAGE_PORT=${OPENIM_MESSAGE_PORT:-'10130'}
 readonly OPENIM_MESSAGE_GATEWAY_PORT=${OPENIM_MESSAGE_GATEWAY_PORT:-'10140'}
 # OpenIM组服务端口
 readonly OPENIM_GROUP_PORT=${OPENIM_GROUP_PORT:-'10150'}
+# OpenIM聊天室服务端口
+readonly OPENIM_ROOM_PORT=${OPENIM_ROOM_PORT:-'11110'}
 # OpenIM授权服务端口
 readonly OPENIM_AUTH_PORT=${OPENIM_AUTH_PORT:-'10160'}
 # OpenIM推送服务端口
@@ -327,6 +329,7 @@ def "OPENIM_MSG_NAME" "Msg"                         # OpenIM消息服务名称
 def "OPENIM_PUSH_NAME" "Push"                       # OpenIM推送服务名称
 def "OPENIM_MESSAGE_GATEWAY_NAME" "MessageGateway"  # OpenIM消息网关服务名称
 def "OPENIM_GROUP_NAME" "Group"                     # OpenIM组服务名称
+def "OPENIM_ROOM_NAME" "Room"                     # OpenIM组服务名称
 def "OPENIM_AUTH_NAME" "Auth"                       # OpenIM授权服务名称
 def "OPENIM_CONVERSATION_NAME" "Conversation"       # OpenIM对话服务名称
 def "OPENIM_THIRD_NAME" "Third"                     # OpenIM第三方服务名称
@@ -396,6 +399,8 @@ readonly MESSAGE_PROM_PORT=${MESSAGE_PROM_PORT:-'20130'}
 readonly MSG_GATEWAY_PROM_PORT=${MSG_GATEWAY_PROM_PORT:-'20140'}
 # Group 服务的 Prometheus 端口
 readonly GROUP_PROM_PORT=${GROUP_PROM_PORT:-'20150'}
+# Group 服务的 Prometheus 端口
+readonly ROOM_PROM_PORT=${ROOM_PROM_PORT:-'21110'}
 # Auth 服务的 Prometheus 端口
 readonly AUTH_PROM_PORT=${AUTH_PROM_PORT:-'20160'}
 # Push 服务的 Prometheus 端口
@@ -533,6 +538,17 @@ def "OPENIM_RPC_GROUP_LOG_MAX_BACKUPS" "7"                                # Open
 def "OPENIM_RPC_GROUP_LOG_MAX_AGE" "7"                                    # OpenIM openim-rpc-group 日志最大保存时间（天）
 def "OPENIM_RPC_GROUP_LOG_COMPRESS" "false"                               # OpenIM openim-rpc-group 日志是否压缩
 def "OPENIM_RPC_GROUP_LOG_WITH_STACK" "${LOG_WITH_STACK}"                 # OpenIM openim-rpc-group 日志是否带有堆栈信息
+###################### OpenIM openim-rpc-ROOM ######################
+def "OPENIM_RPC_ROOM_HOST" "127.0.0.1"
+def "OPENIM_RPC_ROOM_BINARY" "${OPENIM_OUTPUT_HOSTBIN}/openim-rpc-room" # OpenIM openim-rpc-group 二进制文件路径
+def "OPENIM_RPC_ROOM_CONFIG" "${OPENIM_ROOT}/config/"                  # OpenIM openim-rpc-group 配置文件路径
+def "OPENIM_RPC_ROOM_LOG_DIR" "${LOG_STORAGE_LOCATION}/openim-rpc-room" # OpenIM openim-rpc-group 日志存储路径
+def "OPENIM_RPC_ROOM_LOG_LEVEL" "info"                                   # OpenIM openim-rpc-group 日志级别
+def "OPENIM_RPC_ROOM_LOG_MAX_SIZE" "100"                                 # OpenIM openim-rpc-group 日志最大大小（MB）
+def "OPENIM_RPC_ROOM_LOG_MAX_BACKUPS" "7"                                # OpenIM openim-rpc-group 日志最大备份数
+def "OPENIM_RPC_ROOM_LOG_MAX_AGE" "7"                                    # OpenIM openim-rpc-group 日志最大保存时间（天）
+def "OPENIM_RPC_ROOM_LOG_COMPRESS" "false"                               # OpenIM openim-rpc-group 日志是否压缩
+def "OPENIM_RPC_ROOM_LOG_WITH_STACK" "${LOG_WITH_STACK}"                 # OpenIM openim-rpc-group 日志是否带有堆栈信息
 
 ###################### OpenIM openim-rpc-msg ######################
 def "OPENIM_RPC_MSG_HOST" "127.0.0.1"
