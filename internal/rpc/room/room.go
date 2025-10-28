@@ -3,22 +3,28 @@ package room
 import (
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+
 	pbroom "baoim/protocol/room"
-	"baoim/tools/discoveryregistry"
+	"baoim/tools/errs"
+
 	"context"
+	"errors"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
-func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+func Start(config *config.GlobalConfig, server *grpc.Server) error {
 
 	rdb, err := cache.NewRedis(config)
 	if err != nil {
 		return err
 	}
 
-	var gs roomServer
+	database := controller.NewRoomDatabase(rdb)
 
+	var gs roomServer
+	gs.db = database
 	gs.rdb = rdb
 	gs.config = config
 	pbroom.RegisterRoomServer(server, &gs)
@@ -27,12 +33,26 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 
 type roomServer struct {
 	rdb redis.UniversalClient
-	//db                    controller.GroupDatabase
+	db  controller.RoomDatabase
 	//User                  rpcclient.UserRpcClient
 	//Notification          *notification.GroupNotificationSender
 	//conversationRpcClient rpcclient.ConversationRpcClient
 	//msgRpcClient          rpcclient.MessageRpcClient
 	config *config.GlobalConfig
+}
+
+func (r roomServer) GetRoomList(ctx context.Context, req *pbroom.GetRoomListReq) (*pbroom.GetRoomListResp, error) {
+	if req.PageNumber == 0 || req.ShowNumber == 0 {
+		return nil, errs.Wrap(errors.New("parameter error"))
+	}
+
+	list, err := r.db.GetRoomList(ctx, req.PageNumber, req.ShowNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	//println(list.Rooms[0].RoomID)
+	return list, nil
 }
 
 // 添加用户到列表

@@ -140,6 +140,7 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 	// init rpc client here
 	userRpc := rpcclient.NewUser(disCov, config)
 	groupRpc := rpcclient.NewGroup(disCov, config)
+	roomRpc := rpcclient.NewRoom(disCov, config)
 	friendRpc := rpcclient.NewFriend(disCov, config)
 	messageRpc := rpcclient.NewMessage(disCov, config)
 	conversationRpc := rpcclient.NewConversation(disCov, config)
@@ -197,6 +198,12 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		friendRouterGroup.POST("/get_specified_friends_info", f.GetSpecifiedFriendsInfo)
 		friendRouterGroup.POST("/update_friends", f.UpdateFriends)
 	}
+	room := NewRoomApi(*roomRpc)
+	roomRouterRoom := r.Group("/room", ParseToken)
+	{
+		roomRouterRoom.POST("/get_room_list", room.GetRoomList1)
+	}
+
 	g := NewGroupApi(*groupRpc)
 	groupRouterGroup := r.Group("/group", ParseToken)
 	{
