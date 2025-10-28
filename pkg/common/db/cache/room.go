@@ -3,16 +3,21 @@ package cache
 import (
 	pbroom "baoim/protocol/room"
 	"baoim/protocol/sdkws"
+	"baoim/tools/errs"
 	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"strconv"
+	"time"
 )
 
 type RoomCache interface {
 	//获取聊天室列表接口
 	GetRoomListCache(ctx context.Context, page int32, pageSize int32) (*pbroom.GetRoomListResp, error)
+	//添加用户到列表
+	UpdateRoomUserCache(ctx context.Context, userID string) error
+	DeleteRoomUserCache(ctx context.Context, userID string) error
 }
 
 type RoomCacheRedis struct {
@@ -50,6 +55,32 @@ func NewRoomCacheRedis(
 
 	}
 
+}
+
+const (
+	userRoomIDKey  = "ROOM_USER:"    // 哈希键：存储用户详情
+	roomOnlineKey  = "ROOM_ONLINE:"  // 有序集合：存储用户ID+最后活跃时间
+	OfflineTimeout = 5 * time.Minute // 离线超时时间
+)
+
+func (g *RoomCacheRedis) UpdateRoomUserCache(ctx context.Context, userID string) error {
+	pipe := g.rdb.Pipeline()
+	//	pipe.Set(ctx, userRoomIDKey+userID, roomID, 0)
+	pipe.ZAdd(ctx, roomOnlineKey, redis.Z{
+		Score:  float64(time.Now().UnixMilli()),
+		Member: userID,
+	})
+	_, err := pipe.Exec(ctx)
+	return errs.Wrap(err, "redis pipeline exec failed")
+}
+
+// 删除用户
+func (g *RoomCacheRedis) DeleteRoomUserCache(ctx context.Context, userID string) error {
+	pipe := g.rdb.Pipeline()
+	//pipe.HDel(ctx, userRoomIDKey, userID)
+	pipe.ZRem(ctx, roomOnlineKey, userID)
+	_, err := pipe.Exec(ctx)
+	return errs.Wrap(err, "delete user from redis failed")
 }
 
 // 获取房间列表，按积分倒序分页

@@ -10,6 +10,9 @@ import (
 type RoomDatabase interface {
 	//获取聊天室列表 接口
 	GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbroom.GetRoomListResp, error)
+	//添加用户到列表
+	UpdateRoomUser(ctx context.Context, userID string) error
+	DeleteRoomUser(ctx context.Context, userID string) error
 }
 
 func NewRoomDatabase(
@@ -44,4 +47,12 @@ func (r roomDatabase) GetRoomList(ctx context.Context, page int32, pageSize int3
 
 	return r.cache.GetRoomListCache(ctx, page, pageSize)
 
+}
+
+func (r roomDatabase) UpdateRoomUser(ctx context.Context, userID string) error {
+	return r.cache.UpdateRoomUserCache(ctx, userID)
+}
+
+func (r roomDatabase) DeleteRoomUser(ctx context.Context, userID string) error {
+	return r.cache.DeleteRoomUserCache(ctx, userID)
 }

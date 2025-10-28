@@ -202,6 +202,8 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 	roomRouterRoom := r.Group("/room", ParseToken)
 	{
 		roomRouterRoom.POST("/get_room_list", room.GetRoomList1)
+		roomRouterRoom.POST("/del_room_user", room.DeleteRoomUser)
+		roomRouterRoom.POST("/update_room_user", room.UpdateRoomUser)
 	}
 
 	g := NewGroupApi(*groupRpc)
