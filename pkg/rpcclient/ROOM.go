@@ -23,3 +23,5 @@ func NewRoom(discov discoveryregistry.SvcDiscoveryRegistry, config *config.Globa
 	client := room.NewRoomClient(conn)
 	return &Room{discov: discov, Client: client, Config: config}
 }
+
+type RoomRpcClient Room
