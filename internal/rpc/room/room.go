@@ -104,7 +104,7 @@ func (r roomServer) CleanOfflineUser(ctx context.Context, req *pbroom.OnlineUser
 				fmt.Printf("查询用户[%s]房间信息失败: %v\n", req.UserID, err1)
 				return // 直接return退出匿名函数
 			}
-			//如果 rID == roomID 说明用户上线了并且还在房间内还在房间内，不执行目标逻辑
+			//如果 rID == roomID 说明用户上线了并且还在房间内还在房间内， 不执行目标逻辑;
 			if rID != "" && rID != roomID {
 				fmt.Printf("用户[%s]离线超过5分钟，执行目标逻辑（如清理资源/发送通知）\n", req.UserID)
 			}
