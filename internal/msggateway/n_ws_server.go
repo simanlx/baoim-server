@@ -15,6 +15,7 @@
 package msggateway
 
 import (
+	pbroom "baoim/protocol/room"
 	"context"
 	"encoding/json"
 	"errors"
@@ -81,6 +82,7 @@ type WsServer struct {
 	validate          *validator.Validate
 	cache             cache.MsgModel
 	userClient        *rpcclient.UserRpcClient
+	roomClient        *rpcclient.RoomRpcClient
 	disCov            discoveryregistry.SvcDiscoveryRegistry
 	Compressor
 	Encoder
@@ -107,11 +109,20 @@ func (ws *WsServer) SetUserOnlineStatus(ctx context.Context, client *Client, sta
 	}
 	switch status {
 	case constant.Online:
+		//上线时触发 停止定时清理房间
+		_, _ = ws.roomClient.Client.OnlineUser(ctx, &pbroom.OnlineUserReq{
+			UserID: client.UserID,
+		})
 		err := CallbackUserOnline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.IsBackground, client.ctx.GetConnID())
 		if err != nil {
 			log.ZWarn(ctx, "CallbackUserOnline err", err)
 		}
 	case constant.Offline:
+		//离线触发清理房间
+		_, _ = ws.roomClient.Client.CleanOfflineUser(ctx, &pbroom.OnlineUserReq{
+			UserID: client.UserID,
+		})
+
 		err := CallbackUserOffline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.ctx.GetConnID())
 		if err != nil {
 			log.ZWarn(ctx, "CallbackUserOffline err", err)

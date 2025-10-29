@@ -10,8 +10,10 @@ import (
 	"baoim/tools/mcontext"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
+	"time"
 )
 
 func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
@@ -27,6 +29,8 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 	gs.db = database
 	gs.rdb = rdb
 	gs.config = config
+	// 启动离线用户清理定时器
+
 	pbroom.RegisterRoomServer(server, &gs)
 	return nil
 }
@@ -40,34 +44,6 @@ type roomServer struct {
 	//msgRpcClient          rpcclient.MessageRpcClient
 	config *config.GlobalConfig
 }
-
-//// 启动离线用户清理定时器
-//func (r *roomServer) startOfflineCleaner() {
-//	ticker := time.NewTicker(1 * time.Minute)
-//	go func() {
-//		for range ticker.C {
-//			ctx := context.Background()
-//			offlineUsers, err := r.cache.CleanOfflineUsers(ctx)
-//			if err != nil {
-//				log.ZError(ctx, "clean offline users failed", err)
-//				continue
-//			}
-//
-//			// 处理有房间ID的离线用户
-//			for _, user := range offlineUsers {
-//				if user.RoomID != "" {
-//					_, err := r.groupClient.QuitRoomList(ctx, &pbgroup.QuitRoomListReq{
-//						RoomID: user.RoomID,
-//						UserID: user.UserID,
-//					})
-//					if err != nil {
-//						log.ZError(ctx, "call quit room failed", err, "userID", user.UserID, "roomID", user.RoomID)
-//					}
-//				}
-//			}
-//		}
-//	}()
-//}
 
 func (r roomServer) GetRoomList(ctx context.Context, req *pbroom.GetRoomListReq) (*pbroom.GetRoomListResp, error) {
 	if req.PageNumber == 0 || req.ShowNumber == 0 {
@@ -91,7 +67,7 @@ func (r roomServer) UpdateRoomUser(ctx context.Context, req *pbroom.UpdateRoomUs
 	}
 	println("uid======", uid)
 
-	if err := r.db.UpdateRoomUser(ctx, uid); err != nil {
+	if err := r.db.UpdateRoomUser(ctx, uid, req.RoomID); err != nil {
 		return nil, err
 	}
 	return &pbroom.UpdateRoomUserResp{}, nil
@@ -107,4 +83,40 @@ func (r roomServer) DeleteRoomUser(ctx context.Context, req *pbroom.DeleteRoomUs
 		return nil, err
 	}
 	return &pbroom.DeleteRoomUserResp{}, nil
+}
+
+func (r roomServer) CleanOfflineUser(ctx context.Context, req *pbroom.OnlineUserReq) (*pbroom.OnlineUserResp, error) {
+
+	roomID, err := r.db.CleanOfflineUsers(ctx, req.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if roomID != "" {
+
+		timer := time.NewTimer(5 * time.Minute)
+		go func() {
+			<-timer.C
+			// 任务触发时再次检查：仅离线状态才执行目标操作
+			rID, err1 := r.db.GetRoomUser(context.Background(), req.UserID)
+			if err1 != nil {
+				// 这里不能返回值，改为打印错误日志
+				fmt.Printf("查询用户[%s]房间信息失败: %v\n", req.UserID, err1)
+				return // 直接return退出匿名函数
+			}
+			if rID != "" && rID == roomID {
+				fmt.Printf("用户[%s]离线超过5分钟，执行目标逻辑（如清理资源/发送通知）\n", req.UserID)
+			}
+		}()
+
+	}
+
+	return &pbroom.OnlineUserResp{}, nil
+}
+
+func (r roomServer) OnlineUser(ctx context.Context, req *pbroom.OnlineUserReq) (*pbroom.OnlineUserResp, error) {
+
+	//关闭定时器未实现
+	//TODO implement me
+	panic("implement me")
 }
