@@ -4,13 +4,14 @@ import (
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/rpcclient"
 	pbroom "baoim/protocol/room"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
+	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"context"
 	"errors"
-	"fmt"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"time"
@@ -24,16 +25,24 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 	}
 
 	database := controller.NewRoomDatabase(rdb)
-
+	groupRpcClient := rpcclient.NewGroupRpcClient(client, config)
 	var gs roomServer
 	gs.db = database
 	gs.rdb = rdb
 	gs.config = config
-	// 启动离线用户清理定时器
-
+	gs.groupRpcClient = groupRpcClient
+	gs.startOfflineCleaner()
+	// 初始化用户定时器映射
+	//gs.userTimers = make(map[string]*userTimerInfo)
 	pbroom.RegisterRoomServer(server, &gs)
 	return nil
 }
+
+// 定义用户定时器信息结构，存储定时器和关联的房间ID
+//type userTimerInfo struct {
+//	Timer  *time.Timer // 定时器实例
+//	RoomID string      // 关联的房间ID
+//}
 
 type roomServer struct {
 	rdb redis.UniversalClient
@@ -42,7 +51,8 @@ type roomServer struct {
 	//Notification          *notification.GroupNotificationSender
 	//conversationRpcClient rpcclient.ConversationRpcClient
 	//msgRpcClient          rpcclient.MessageRpcClient
-	config *config.GlobalConfig
+	groupRpcClient rpcclient.GroupRpcClient
+	config         *config.GlobalConfig
 }
 
 func (r roomServer) GetRoomList(ctx context.Context, req *pbroom.GetRoomListReq) (*pbroom.GetRoomListResp, error) {
@@ -67,9 +77,10 @@ func (r roomServer) UpdateRoomUser(ctx context.Context, req *pbroom.UpdateRoomUs
 	}
 	println("uid======", uid)
 
-	if err := r.db.UpdateRoomUser(ctx, uid, req.RoomID); err != nil {
+	if err := r.db.UpdateRoomUser(ctx, uid, req.RoomID, req.IsOwner); err != nil {
 		return nil, err
 	}
+
 	return &pbroom.UpdateRoomUserResp{}, nil
 }
 
@@ -85,39 +96,61 @@ func (r roomServer) DeleteRoomUser(ctx context.Context, req *pbroom.DeleteRoomUs
 	return &pbroom.DeleteRoomUserResp{}, nil
 }
 
+// 用户离线时触发，检查用户是否在房间内，如果在房间内则添加到离线列表，否则直接在在线聊表删除
 func (r roomServer) CleanOfflineUser(ctx context.Context, req *pbroom.OnlineUserReq) (*pbroom.OnlineUserResp, error) {
-
-	roomID, err := r.db.CleanOfflineUsers(ctx, req.UserID)
+	//获取用户是否在房间内
+	roomID, err := r.db.GetRoomUserRoomID(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
-
+	//如果用户在房间内，把用户添加到离线列表,等在轮训 退出或解散群组
 	if roomID != "" {
-
-		timer := time.NewTimer(5 * time.Minute)
-		go func() {
-			<-timer.C
-			// 任务触发时再次检查：仅离线状态才执行目标操作
-			rID, err1 := r.db.GetRoomUser(context.Background(), req.UserID)
-			if err1 != nil {
-				// 这里不能返回值，改为打印错误日志
-				fmt.Printf("查询用户[%s]房间信息失败: %v\n", req.UserID, err1)
-				return // 直接return退出匿名函数
-			}
-			//如果 rID == roomID 说明用户上线了并且还在房间内还在房间内， 不执行目标逻辑;
-			if rID != "" && rID != roomID {
-				fmt.Printf("用户[%s]离线超过5分钟，执行目标逻辑（如清理资源/发送通知）\n", req.UserID)
-			}
-		}()
-
+		//用户在房间内，把用户添加到离线列表
+		err := r.db.AddOfflineUser(ctx, req.UserID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		//用户不在房间内，直接在 在线列表中删除
+		err := r.db.DeleteRoomUser(ctx, req.UserID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &pbroom.OnlineUserResp{}, nil
 }
 
-func (r roomServer) OnlineUser(ctx context.Context, req *pbroom.OnlineUserReq) (*pbroom.OnlineUserResp, error) {
+// 启动离线用户清理定时器
+func (r *roomServer) startOfflineCleaner() {
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		println("开始")
+		for range ticker.C {
+			println("轮训执行")
+			ctx := context.Background()
+			offlineUsers, err := r.db.CleanOfflineUsers(ctx)
+			if err != nil {
+				log.ZError(ctx, "clean offline users failed", err)
+				continue
+			}
 
-	//关闭定时器未实现
-	//TODO implement me
-	panic("implement me")
+			// 处理有房间ID的离线用户
+			for _, room := range offlineUsers {
+				if room["roomID"] != "" {
+					// 处理有房间ID的离线用户
+					if room["isOwner"] == "0" {
+						//解散群组 忽略错误
+						_ = r.groupRpcClient.DismissRoom(ctx, room["roomID"])
+
+						println("执行退出群组")
+					} else {
+						_ = r.groupRpcClient.QuitRoom(ctx, room["roomID"], room["userID"])
+						println("执行解散群组")
+					}
+				}
+				//
+			}
+		}
+	}()
 }

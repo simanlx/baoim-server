@@ -110,9 +110,9 @@ func (ws *WsServer) SetUserOnlineStatus(ctx context.Context, client *Client, sta
 	switch status {
 	case constant.Online:
 		//上线时触发 停止定时清理房间
-		_, _ = ws.roomClient.Client.OnlineUser(ctx, &pbroom.OnlineUserReq{
-			UserID: client.UserID,
-		})
+		//_, _ = ws.roomClient.Client.OnlineUser(ctx, &pbroom.OnlineUserReq{
+		//	UserID: client.UserID,
+		//})
 		err := CallbackUserOnline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.IsBackground, client.ctx.GetConnID())
 		if err != nil {
 			log.ZWarn(ctx, "CallbackUserOnline err", err)

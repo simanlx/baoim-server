@@ -216,6 +216,15 @@ func (g *GroupRpcClient) DismissRoom(ctx context.Context, groupID string) error 
 	return err
 }
 
+// /退出房间 rtc
+func (g *GroupRpcClient) QuitRoom(ctx context.Context, groupID string, userID string) error {
+	_, err := g.Client.QuitRoom(ctx, &group.QuitGroupReq{
+		GroupID: groupID,
+		UserID:  userID,
+	})
+	return err
+}
+
 func (g *GroupRpcClient) NotificationUserInfoUpdate(ctx context.Context, userID string) error {
 	_, err := g.Client.NotificationUserInfoUpdate(ctx, &group.NotificationUserInfoUpdateReq{
 		UserID: userID,

@@ -11,11 +11,12 @@ type RoomDatabase interface {
 	//获取聊天室列表 接口
 	GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbroom.GetRoomListResp, error)
 	//添加用户到列表
-	UpdateRoomUser(ctx context.Context, userID string, roomID string) error
+	UpdateRoomUser(ctx context.Context, userID string, roomID string, isOwner bool) error
 	DeleteRoomUser(ctx context.Context, userID string) error
-	CleanOfflineUsers(ctx context.Context, userID string) (string, error) // 清理离线用户
+	CleanOfflineUsers(ctx context.Context) ([]map[string]string, error) // 清理离线用户
 
-	GetRoomUser(ctx context.Context, userID string) (string, error)
+	GetRoomUserRoomID(ctx context.Context, userID string) (string, error)
+	AddOfflineUser(ctx context.Context, userID string) error // 添加用户为离线状态
 }
 
 func NewRoomDatabase(
@@ -50,17 +51,22 @@ func (r roomDatabase) GetRoomList(ctx context.Context, page int32, pageSize int3
 	return r.cache.GetRoomListCache(ctx, page, pageSize)
 }
 
-func (r roomDatabase) UpdateRoomUser(ctx context.Context, userID string, roomID string) error {
-	return r.cache.UpdateRoomUserCache(ctx, userID, roomID)
+func (r roomDatabase) UpdateRoomUser(ctx context.Context, userID string, roomID string, isOwner bool) error {
+	return r.cache.UpdateRoomUserCache(ctx, userID, roomID, isOwner)
 }
 
 func (r roomDatabase) DeleteRoomUser(ctx context.Context, userID string) error {
 	return r.cache.DeleteRoomUserCache(ctx, userID)
 }
-func (r roomDatabase) GetRoomUser(ctx context.Context, userID string) (string, error) {
-	return r.cache.GetRoomUserCache(ctx, userID)
+func (r roomDatabase) GetRoomUserRoomID(ctx context.Context, userID string) (string, error) {
+	return r.cache.GetRoomUserRoomIDCache(ctx, userID)
 }
 
-func (r roomDatabase) CleanOfflineUsers(ctx context.Context, userID string) (string, error) {
-	return r.cache.CleanOfflineUsersCache(ctx, userID)
+// AddOfflineUser 添加用户为离线状态
+func (r roomDatabase) AddOfflineUser(ctx context.Context, userID string) error {
+	return r.cache.AddOfflineUsersCache(ctx, userID)
+}
+
+func (r roomDatabase) CleanOfflineUsers(ctx context.Context) ([]map[string]string, error) {
+	return r.cache.CleanOfflineUsersCache(ctx)
 }
