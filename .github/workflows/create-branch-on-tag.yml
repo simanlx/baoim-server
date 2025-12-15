@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check out code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -70,7 +70,7 @@ jobs:
 
     - name: Push CHANGELOG to Main
       if: steps.create-and-commit-changelog.outputs.changes == 'true'
-      uses: ad-m/github-push-action@v0.8.0
+      uses: ad-m/github-push-action@v1.0.0
       with:
         github_token: ${{ secrets.BOT_GITHUB_TOKEN }}
         branch: main
