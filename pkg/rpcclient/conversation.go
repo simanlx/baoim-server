@@ -69,6 +69,18 @@ func (c *ConversationRpcClient) SingleChatFirstCreateConversation(ctx context.Co
 	return err
 }
 
+// 解散聊天室时删除所有会话
+func (c *ConversationRpcClient) DismissRoomDeleteConversation(ctx context.Context, roomID string, userIDs []string) error {
+	_, err := c.Client.DismissRoomDeleteConversation(ctx, &pbconversation.DismissRoomDeleteConversationReq{RoomID: roomID, UserIDs: userIDs})
+	return err
+}
+
+// 删除用户聊天室会话
+func (c *ConversationRpcClient) DeleteUserRoomConversation(ctx context.Context, roomID string, userID string) error {
+	_, err := c.Client.DeleteUserRoomConversation(ctx, &pbconversation.DeleteUserRoomConversationReq{RoomID: roomID, UserID: userID})
+	return err
+}
+
 // /增加 聊天室首次创建  会话
 func (c *ConversationRpcClient) RoomGroupChatFirstCreateConversation(ctx context.Context, groupID string, userIDs []string) error {
 	_, err := c.Client.RoomCreateGroupChatConversations(ctx, &pbconversation.CreateGroupChatConversationsReq{UserIDs: userIDs, GroupID: groupID})

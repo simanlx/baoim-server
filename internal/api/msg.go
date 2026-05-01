@@ -143,11 +143,13 @@ func (m *MessageApi) MarkConversationAsRead(c *gin.Context) {
 
 // 获取会话已读和最大序列
 func (m *MessageApi) GetConversationsHasReadAndMaxSeq(c *gin.Context) {
+
 	a2r.Call(msg.MsgClient.GetConversationsHasReadAndMaxSeq, m.Client, c)
 }
 
 // 设置会话已读序列号
 func (m *MessageApi) SetConversationHasReadSeq(c *gin.Context) {
+
 	a2r.Call(msg.MsgClient.SetConversationHasReadSeq, m.Client, c)
 }
 

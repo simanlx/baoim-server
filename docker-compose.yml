@@ -7,19 +7,19 @@ networks:
     driver: bridge
 
 services:
-  mysql:
-    image: mysql:5.7
-    ports:
-      - "13306:3306"
-    container_name: mysql
-    volumes:
-      - "${DATA_DIR:-./}/components/mysql/data:/var/lib/mysql"
-      - "/etc/localtime:/etc/localtime"
-    environment:
-      MYSQL_ROOT_PASSWORD: openIM123
-    restart: always
-    networks:
-      - openim
+#  mysql:
+#    image: mysql:5.7
+#    ports:
+#      - "13306:3306"
+#    container_name: mysql
+#    volumes:
+#      - "${DATA_DIR:-./}/components/mysql/data:/var/lib/mysql"
+#      - "/etc/localtime:/etc/localtime"
+#    environment:
+#      MYSQL_ROOT_PASSWORD: openIM123
+#    restart: always
+#    networks:
+#      - openim
 
   mongodb:
     image: mongo:${MONGODB_IMAGE_VERSION-6.0.2}

@@ -61,6 +61,9 @@ const (
 var concurrentLimit = 3
 
 type SeqCache interface {
+	// DelUserSeq 删除用户 最小seq 及 已读seq
+	DelUserSeqCache(ctx context.Context, uid string, conversationID string) error
+
 	SetMaxSeq(ctx context.Context, conversationID string, maxSeq int64) error
 	GetMaxSeqs(ctx context.Context, conversationIDs []string) (map[string]int64, error)
 	GetMaxSeq(ctx context.Context, conversationID string) (int64, error)
@@ -150,6 +153,7 @@ func (c *msgCache) getMinSeqKey(conversationID string) string {
 }
 
 func (c *msgCache) getHasReadSeqKey(conversationID string, userID string) string {
+
 	return hasReadSeq + userID + ":" + conversationID
 }
 
@@ -159,6 +163,15 @@ func (c *msgCache) getConversationUserMinSeqKey(conversationID, userID string) s
 
 func (c *msgCache) setSeq(ctx context.Context, conversationID string, seq int64, getkey func(conversationID string) string) error {
 	return errs.Wrap(c.rdb.Set(ctx, getkey(conversationID), seq, 0).Err())
+}
+
+// 增加 删除用户 最小seq 及 已读seq
+func (c *msgCache) DelUserSeqCache(ctx context.Context, uid string, conversationID string) error {
+	keys := []string{
+		c.getConversationUserMinSeqKey(conversationID, uid),
+		hasReadSeq + uid + ":" + conversationID,
+	}
+	return errs.Wrap(c.rdb.Del(ctx, keys...).Err())
 }
 
 func (c *msgCache) getSeq(ctx context.Context, conversationID string, getkey func(conversationID string) string) (int64, error) {
@@ -253,28 +266,33 @@ func (c *msgCache) SetUserConversationsMinSeqs(ctx context.Context, userID strin
 }
 
 func (c *msgCache) SetHasReadSeq(ctx context.Context, userID string, conversationID string, hasReadSeq int64) error {
+
 	return errs.Wrap(c.rdb.Set(ctx, c.getHasReadSeqKey(conversationID, userID), hasReadSeq, 0).Err())
 }
 
 func (c *msgCache) SetHasReadSeqs(ctx context.Context, conversationID string, hasReadSeqs map[string]int64) error {
+
 	return c.setSeqs(ctx, hasReadSeqs, func(userID string) string {
 		return c.getHasReadSeqKey(conversationID, userID)
 	})
 }
 
 func (c *msgCache) UserSetHasReadSeqs(ctx context.Context, userID string, hasReadSeqs map[string]int64) error {
+
 	return c.setSeqs(ctx, hasReadSeqs, func(conversationID string) string {
 		return c.getHasReadSeqKey(conversationID, userID)
 	})
 }
 
 func (c *msgCache) GetHasReadSeqs(ctx context.Context, userID string, conversationIDs []string) (map[string]int64, error) {
+
 	return c.getSeqs(ctx, conversationIDs, func(conversationID string) string {
 		return c.getHasReadSeqKey(conversationID, userID)
 	})
 }
 
 func (c *msgCache) GetHasReadSeq(ctx context.Context, userID string, conversationID string) (int64, error) {
+
 	val, err := c.rdb.Get(ctx, c.getHasReadSeqKey(conversationID, userID)).Int64()
 	if err != nil {
 		return 0, err

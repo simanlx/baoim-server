@@ -40,11 +40,16 @@ type ConversationModel struct {
 	IsMsgDestruct         bool      `bson:"is_msg_destruct"`
 	MsgDestructTime       int64     `bson:"msg_destruct_time"`
 	LatestMsgDestructTime time.Time `bson:"latest_msg_destruct_time"`
+	//ExpireTime            time.Time `bson:"expire_time,omitempty"` // 可选字段，需要过期时才设置
 }
 
 type ConversationModelInterface interface {
 	Create(ctx context.Context, conversations []*ConversationModel) (err error)
 	Delete(ctx context.Context, groupIDs []string) (err error)
+	// Expire 定时删除
+	//Expire(ctx context.Context, groupID string, expireTime time.Time) (err error)
+	DeleteOne(ctx context.Context, ownerUserID string, groupID string) (err error)
+
 	UpdateByMap(ctx context.Context, userIDs []string, conversationID string, args map[string]any) (rows int64, err error)
 	Update(ctx context.Context, conversation *ConversationModel) (err error)
 	Find(ctx context.Context, ownerUserID string, conversationIDs []string) (conversations []*ConversationModel, err error)

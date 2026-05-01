@@ -16,13 +16,18 @@ package cont
 
 const (
 	// hashPath defines the storage path for hash data within the 'openim' directory.
-	hashPath = "openim/data/hash/"
+	hashPath = "data/hash/"
 
 	// tempPath specifies the directory for temporary files in the 'openim' structure.
-	tempPath = "openim/temp/"
+	tempPath = "temp/"
 
 	// DirectPath indicates the directory for direct uploads or access within the 'openim' structure.
-	DirectPath = "openim/direct"
+	DirectPath = "direct"
+
+	FacePath    = "face"    //人脸照片
+	AvatarPath  = "avatar"  //头像
+	WorkingPath = "working" //朋友圈照片
+	UserPath    = "user"
 
 	// UploadTypeMultipart represents the identifier for multipart uploads,
 	// allowing large files to be uploaded in chunks.

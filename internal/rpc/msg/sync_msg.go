@@ -135,6 +135,13 @@ func (m *msgServer) GetMaxSeq(ctx context.Context, req *sdkws.GetMaxSeqReq) (*sd
 	return resp, nil
 }
 
+func (m *msgServer) DelUserSeq(ctx context.Context, req *msg.DelUserSeqReq) (*msg.DelUserSeqResp, error) {
+	if err := m.MsgDatabase.DelUserSeq(ctx, req.UserID, req.ConversationID); err != nil {
+		return nil, err
+	}
+	return &msg.DelUserSeqResp{}, nil
+}
+
 func (m *msgServer) SearchMessage(ctx context.Context, req *msg.SearchMessageReq) (resp *msg.SearchMessageResp, err error) {
 	var chatLogs []*sdkws.MsgData
 	var total int32

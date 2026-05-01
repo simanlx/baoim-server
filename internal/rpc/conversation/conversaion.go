@@ -367,6 +367,23 @@ func (c *conversationServer) CreateGroupChatConversations(ctx context.Context, r
 	return &pbconversation.CreateGroupChatConversationsResp{}, nil
 }
 
+// DismissRoomDeleteConversation  解散聊天室时延时在mdb中删除会话 及所有用户会话缓存
+func (c *conversationServer) DismissRoomDeleteConversation(ctx context.Context, req *pbconversation.DismissRoomDeleteConversationReq) (*pbconversation.DismissRoomDeleteConversationResp, error) {
+	err := c.conversationDatabase.DeleteRoomAllConversation(ctx, req.RoomID, req.UserIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.DismissRoomDeleteConversationResp{}, nil
+}
+
+func (c *conversationServer) DeleteUserRoomConversation(ctx context.Context, req *pbconversation.DeleteUserRoomConversationReq) (*pbconversation.DeleteUserRoomConversationResp, error) {
+	err := c.conversationDatabase.DeleteUserRoomConversation(ctx, req.UserID, req.RoomID)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.DeleteUserRoomConversationResp{}, nil
+}
+
 // 增加 聊天室 创建会话列表  测试
 func (c *conversationServer) RoomCreateGroupChatConversations(ctx context.Context, req *pbconversation.CreateGroupChatConversationsReq) (*pbconversation.CreateGroupChatConversationsResp, error) {
 	err := c.conversationDatabase.RoomCreateGroupChatConversation(ctx, req.GroupID, req.UserIDs)
@@ -377,6 +394,7 @@ func (c *conversationServer) RoomCreateGroupChatConversations(ctx context.Contex
 }
 
 func (c *conversationServer) SetConversationMaxSeq(ctx context.Context, req *pbconversation.SetConversationMaxSeqReq) (*pbconversation.SetConversationMaxSeqResp, error) {
+
 	if err := c.conversationDatabase.UpdateUsersConversationField(ctx, req.OwnerUserID, req.ConversationID,
 		map[string]any{"max_seq": req.MaxSeq}); err != nil {
 		return nil, err

@@ -51,6 +51,7 @@ type GroupModel struct {
 
 type GroupModelInterface interface {
 	Create(ctx context.Context, groups []*GroupModel) (err error)
+	DeleteOne(ctx context.Context, groupID string) (err error)
 	UpdateMap(ctx context.Context, groupID string, args map[string]any) (err error)
 	UpdateStatus(ctx context.Context, groupID string, status int32) (err error)
 	Find(ctx context.Context, groupIDs []string) (groups []*GroupModel, err error)

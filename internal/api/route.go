@@ -199,25 +199,33 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		friendRouterGroup.POST("/update_friends", f.UpdateFriends)
 	}
 	room := NewRoomApi(*roomRpc)
-	roomRouterRoom := r.Group("/room", ParseToken)
+	roomRouter := r.Group("/room", ParseToken)
 	{
-		roomRouterRoom.POST("/get_room_list", room.GetRoomList1)
-		roomRouterRoom.POST("/del_room_user", room.DeleteRoomUser)
-		roomRouterRoom.POST("/update_room_user", room.UpdateRoomUser)
+
+		roomRouter.POST("/create_room", room.CreateRoom)
+		roomRouter.POST("/dismiss_room", room.DismissRoom) //解散聊天室
+		roomRouter.POST("/join_room", room.JoinRoom)       //加入聊天室
+		roomRouter.POST("/quit_room", room.QuitRoom)       //退出聊天室
+		roomRouter.POST("/kick_room", room.KickRoomMember) //踢出聊天室成员
+
+		roomRouter.POST("/mute_room_member", room.MuteRoomMember)              //禁言聊天室成员
+		roomRouter.POST("/cancel_mute_room_member", room.CancelMuteRoomMember) //取消禁言聊天室成员
+
+		roomRouter.POST("/get_room_list", room.GetRoomList1)
+		roomRouter.POST("/get_room_info", room.GetRoomInfo) ///获取当前房间 缓存
+
+		roomRouter.POST("/add_room_online", room.AddRoomOnline) //增加用户到在线列表
+		roomRouter.POST("/del_room_online", room.DelRoomOnline) //在在线列表中删除用户
 	}
 
 	g := NewGroupApi(*groupRpc)
 	groupRouterGroup := r.Group("/group", ParseToken)
 	{
 		groupRouterGroup.POST("/create_group", g.CreateGroup)
-		groupRouterGroup.POST("/create_group_room", g.CreateGroupRoom)
 		groupRouterGroup.POST("/set_group_info", g.SetGroupInfo)
 		groupRouterGroup.POST("/join_group", g.JoinGroup)
-
-		groupRouterGroup.POST("/join_room", g.JoinRoom) //加入聊天室
-
 		groupRouterGroup.POST("/quit_group", g.QuitGroup)
-		groupRouterGroup.POST("/quit_room", g.QuitRoom) //退出聊天室
+
 		groupRouterGroup.POST("/group_application_response", g.ApplicationGroupResponse)
 		groupRouterGroup.POST("/transfer_group", g.TransferGroupOwner)
 		groupRouterGroup.POST("/get_recv_group_applicationList", g.GetRecvGroupApplicationList)
@@ -225,17 +233,15 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/get_group_users_req_application_list", g.GetGroupUsersReqApplicationList)
 		groupRouterGroup.POST("/get_groups_info", g.GetGroupsInfo)
 		groupRouterGroup.POST("/kick_group", g.KickGroupMember)
-		groupRouterGroup.POST("/kick_room", g.KickRoomMember) //踢出聊天室成员
+
 		groupRouterGroup.POST("/get_group_members_info", g.GetGroupMembersInfo)
 		groupRouterGroup.POST("/get_group_member_list", g.GetGroupMemberList)
 		groupRouterGroup.POST("/invite_user_to_group", g.InviteUserToGroup)
 		groupRouterGroup.POST("/get_joined_group_list", g.GetJoinedGroupList)
 		groupRouterGroup.POST("/dismiss_group", g.DismissGroup) //
-		groupRouterGroup.POST("/dismiss_room", g.DismissRoom)   // 解散聊天室
 
 		groupRouterGroup.POST("/mute_group_member", g.MuteGroupMember)
-		groupRouterGroup.POST("/mute_room_member", g.MuteRoomMember)              ///聊天室成员禁言
-		groupRouterGroup.POST("/cancel_mute_room_member", g.CancelMuteRoomMember) //聊天室成员取消禁言
+
 		groupRouterGroup.POST("/cancel_mute_group_member", g.CancelMuteGroupMember)
 		groupRouterGroup.POST("/mute_group", g.MuteGroup)
 		groupRouterGroup.POST("/cancel_mute_group", g.CancelMuteGroup)
@@ -243,9 +249,6 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		groupRouterGroup.POST("/get_group_abstract_info", g.GetGroupAbstractInfo)
 		groupRouterGroup.POST("/get_groups", g.GetGroups)
 		groupRouterGroup.POST("/get_group_member_user_id", g.GetGroupMemberUserIDs)
-
-		groupRouterGroup.POST("/get_room_list", g.GetRoomList)
-		groupRouterGroup.POST("/get_room_info", g.GetRoomInfo) ///获取当前房间 缓存
 
 	}
 	superGroupRouterGroup := r.Group("/super_group", ParseToken)
@@ -283,8 +286,8 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		objectGroup.POST("/auth_sign", t.AuthSign)
 		objectGroup.POST("/complete_multipart_upload", t.CompleteMultipartUpload)
 		objectGroup.POST("/access_url", t.AccessURL)
-		objectGroup.POST("/initiate_form_data", t.InitiateFormData)
-		objectGroup.POST("/complete_form_data", t.CompleteFormData)
+		objectGroup.POST("/initiate_form_data", t.InitiateFormData) ///获取上传凭证
+		objectGroup.POST("/complete_form_data", t.CompleteFormData) ///开始上传
 		objectGroup.GET("/*name", t.ObjectRedirect)
 
 		//增加app上线 或后台切回拉取

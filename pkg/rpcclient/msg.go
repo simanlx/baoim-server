@@ -269,6 +269,23 @@ func (m *MessageRpcClient) GetConversationMaxSeq(ctx context.Context, conversati
 	return resp.MaxSeq, nil
 }
 
+// DelUserSeq 删除用户 最小seq 及 已读seq
+func (m *MessageRpcClient) DelUserSeq(ctx context.Context, uid string, conversationID string) error {
+	_, err := m.Client.DelUserSeq(ctx, &msg.DelUserSeqReq{
+		UserID:         uid,
+		ConversationID: conversationID,
+	})
+	return err
+}
+
+// ClearConversationsMsg 清除指定会话ID的消息
+func (m *MessageRpcClient) ClearConversationsMsg(ctx context.Context, conversationIDs []string) error {
+	_, err := m.Client.ClearConversationsMsg(ctx, &msg.ClearConversationsMsgReq{
+		ConversationIDs: conversationIDs,
+	})
+	return err
+}
+
 type NotificationSender struct {
 	contentTypeConf map[int32]config.NotificationConf
 	sessionTypeConf map[int32]int32

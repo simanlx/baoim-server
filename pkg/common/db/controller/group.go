@@ -15,7 +15,6 @@
 package controller
 
 import (
-	pbgroup "baoim/protocol/group"
 	"baoim/protocol/sdkws"
 	"context"
 	"time"
@@ -36,8 +35,6 @@ type GroupDatabase interface {
 
 	//把聊天室 缓存到房间列表
 	AddRoomList(ctx context.Context, room *sdkws.RoomInfo) error
-	//获取聊天室列表 接口
-	GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error)
 
 	//加入房间更新
 	JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error)
@@ -49,8 +46,6 @@ type GroupDatabase interface {
 	KickRoomList(ctx context.Context, roomID string, uid string, img string) error
 	// 解散聊天室
 	DismissRoom(ctx context.Context, roomID string) error
-	//从redis中回去当前聊天室信息
-	GetRoomInfo(ctx context.Context, roomID string) (*sdkws.RoomInfo, error)
 
 	// TakeGroup retrieves a single group by its ID.
 	TakeGroup(ctx context.Context, groupID string) (group *relationtb.GroupModel, err error)
@@ -227,6 +222,7 @@ func (g *groupDatabase) AddRoomList(ctx context.Context, room *sdkws.RoomInfo) e
 	return g.cache.AddRoomCache(ctx, room)
 }
 
+// 加入聊天室 把用户添加到 座位
 func (g *groupDatabase) JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error) {
 	return g.cache.UpdateRoomCache(ctx, roomID, uid, img)
 }
@@ -244,15 +240,6 @@ func (g *groupDatabase) KickRoomList(ctx context.Context, roomID string, uid str
 // 解散聊天室
 func (g *groupDatabase) DismissRoom(ctx context.Context, roomID string) error {
 	return g.cache.DismissRoomCache(ctx, roomID)
-}
-
-func (g *groupDatabase) GetRoomInfo(ctx context.Context, roomID string) (*sdkws.RoomInfo, error) {
-	return g.cache.GetRoomInfoCache(ctx, roomID)
-}
-
-// /获取聊天室列表
-func (g *groupDatabase) GetRoomList(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error) {
-	return g.cache.GetRoomListCache(ctx, page, pageSize)
 }
 
 func (g *groupDatabase) FindGroupMemberUserID(ctx context.Context, groupID string) ([]string, error) {

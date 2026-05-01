@@ -49,6 +49,12 @@ type ConversationDatabase interface {
 
 	//增加 聊天室创建会话列表
 	RoomCreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error
+	//解散群组时删除会话 及缓存
+	DeleteRoomAllConversation(ctx context.Context, roomID string, userIDs []string) error
+
+	// DeleteUserRoomConversation 删除指定用户的指定聊天室会话 及缓存
+	DeleteUserRoomConversation(ctx context.Context, uID string, roomID string) error
+
 	// GetConversationIDs retrieves conversation IDs for a given user.
 	GetConversationIDs(ctx context.Context, userID string) ([]string, error)
 	// GetUserConversationIDsHash gets the hash of conversation IDs for a given user.
@@ -295,6 +301,57 @@ func (c *conversationDatabase) CreateGroupChatConversation(ctx context.Context, 
 	})
 }
 
+// 删除会话数据
+//func (c *conversationDatabase) RoomDeleteGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error {
+//	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+//		err := c.conversationDB.Delete(ctx, []string{groupID}) // 批量插入新会话
+//		if err != nil {
+//			return err
+//		}
+//
+//		return nil
+//	})
+//
+//}
+
+// 解散聊天室时删除所有会话
+func (c *conversationDatabase) DeleteUserRoomConversation(ctx context.Context, uID string, roomID string) error {
+	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+		err := c.conversationDB.DeleteOne(ctx, uID, roomID)
+		if err != nil {
+			return err
+		}
+		err = c.cache.DelUsersRoomConversation(ctx, []string{uID}, "g_"+roomID)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// 解散聊天室时删除所有会话
+func (c *conversationDatabase) DeleteRoomAllConversation(ctx context.Context, roomID string, userIDs []string) error {
+	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+		//更新 字段group_ID字段=groupID 的会话过期时间
+		//err := c.conversationDB.Expire(ctx, roomID, time.Now().Add(1*time.Minute))
+		//if err != nil {
+		//	return err
+		//}
+
+		err := c.conversationDB.Delete(ctx, []string{roomID}) // 批量插入新会话
+		if err != nil {
+			return err
+		}
+		////删除用户缓存  这里有必要吗?
+		err = c.cache.DelUsersRoomConversation(ctx, userIDs, "g_"+roomID)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 // /增加聊天室 测试  创建 会话列表
 func (c *conversationDatabase) RoomCreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error {
 	return c.tx.Transaction(ctx, func(ctx context.Context) error { // 开启数据库事务
@@ -328,6 +385,7 @@ func (c *conversationDatabase) RoomCreateGroupChatConversation(ctx context.Conte
 				return err // 插入失败返回错误
 			}
 		}
+
 		_, err = c.conversationDB.UpdateByMap(ctx, existConversationUserIDs, conversationID, map[string]any{"max_seq": 0}) // 已存在会话的用户，重置max_seq为0
 		if err != nil {
 			return err // 更新失败返回错误

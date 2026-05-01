@@ -40,6 +40,19 @@ func NewConversationMongo(db *mongo.Database) (*ConversationMgo, error) {
 	if err != nil {
 		return nil, errs.Wrap(err)
 	}
+
+	//// 2. 新增 TTL 索引（基于 expire_at 字段，到达指定时间后自动删除）
+	//_, err = coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+	//	Keys: bson.D{
+	//		{Key: "expire_time", Value: 1}, // 过期时间字段（日期类型）
+	//	},
+	//	// 配置过期规则：到达 expire_at 时间点后立即删除（0 秒延迟）
+	//	Options: options.Index().SetExpireAfterSeconds(0),
+	//})
+	//if err != nil {
+	//	return nil, errs.Wrap(err)
+	//}
+
 	return &ConversationMgo{coll: coll}, nil
 }
 
@@ -54,6 +67,17 @@ func (c *ConversationMgo) Create(ctx context.Context, conversations []*relation.
 func (c *ConversationMgo) Delete(ctx context.Context, groupIDs []string) (err error) {
 	return mgoutil.DeleteMany(ctx, c.coll, bson.M{"group_id": bson.M{"$in": groupIDs}})
 }
+
+// DeleteOne 删除指定用户的指定聊天室会话
+func (c *ConversationMgo) DeleteOne(ctx context.Context, ownerUserID string, groupID string) (err error) {
+	return mgoutil.DeleteMany(ctx, c.coll, bson.M{"owner_user_id": ownerUserID, "group_id": groupID})
+}
+
+//
+//func (c *ConversationMgo) Expire(ctx context.Context, groupID string, expireTime time.Time) (err error) {
+//	_, err = mgoutil.UpdateMany(ctx, c.coll, bson.M{"group_id": groupID}, bson.M{"$set": bson.M{"expire_time": expireTime}})
+//	return err
+//}
 
 func (c *ConversationMgo) UpdateByMap(ctx context.Context, userIDs []string, conversationID string, args map[string]any) (rows int64, err error) {
 	res, err := mgoutil.UpdateMany(ctx, c.coll, bson.M{"owner_user_id": bson.M{"$in": userIDs}, "conversation_id": conversationID}, bson.M{"$set": args})

@@ -84,6 +84,9 @@ type ConversationCache interface {
 
 	//设置会话最小seq
 	SetConversationUserMinAndMaxSeq(ctx context.Context, conversationID string, userID string) error
+
+	//删除用户会话缓存
+	DelUsersRoomConversation(ctx context.Context, userIDs []string, conversationID string) error
 }
 
 func NewConversationRedis(rdb redis.UniversalClient, opts rockscache.Options, db relationtb.ConversationModelInterface) ConversationCache {
@@ -164,6 +167,20 @@ func (c *ConversationRedisCache) SetConversationUserMinAndMaxSeq(ctx context.Con
 		return errs.Wrap(err)
 	}
 	return nil
+}
+
+// 排量删除 删除用户会话缓存
+func (c *ConversationRedisCache) DelUsersRoomConversation(ctx context.Context, userIDs []string, conversationID string) error {
+	var keys []string
+	// 批量生成需要删除的 key
+	for _, userID := range userIDs {
+		keys = append(keys, cachekey.GetConversationKey(userID, conversationID))
+		keys = append(keys, cachekey.GetConversationIDsKey(userID))
+
+	}
+
+	// 单次调用 Del 批量删除多个 key
+	return c.rdb.Del(ctx, keys...).Err()
 }
 
 // 创建聊天室 会话时设置用户的最小seq 为当前群组最大seq

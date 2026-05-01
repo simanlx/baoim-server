@@ -17,8 +17,8 @@ package cache
 import (
 	"BaoIM-Server/pkg/common/cachekey"
 	"BaoIM-Server/pkg/common/config"
-	pbgroup "baoim/protocol/group"
 	"baoim/protocol/sdkws"
+	"baoim/tools/mcontext"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -87,8 +87,6 @@ type GroupCache interface {
 
 	//创建聊天室接口
 	AddRoomCache(ctx context.Context, room *sdkws.RoomInfo) error
-	//获取聊天室列表接口
-	GetRoomListCache(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error)
 
 	///加入房间
 	UpdateRoomCache(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error)
@@ -97,8 +95,6 @@ type GroupCache interface {
 	//更新房间积分
 	UpdateRoomScore(ctx context.Context, roomID string, score int64) error
 
-	//获取当前房间缓存信息
-	GetRoomInfoCache(ctx context.Context, roomID string) (*sdkws.RoomInfo, error)
 	// 原子操作：解散房间，清除redis缓存、从积分集合移除
 	DismissRoomCache(ctx context.Context, roomID string) error
 	// 原子操作：剔出房间成员，将房间位置替换为"0"（禁止站位）
@@ -190,6 +186,8 @@ func (g *GroupCacheRedis) AddRoomCache(ctx context.Context, room *sdkws.RoomInfo
 
 // 原子操作：解散房间，清除redis缓存、从积分集合移除
 func (g *GroupCacheRedis) DismissRoomCache(ctx context.Context, roomID string) error {
+	println("操作者id是44", mcontext.GetOpUserID(ctx))
+
 	key := fmt.Sprintf("ROOM:%s", roomID)
 	// 删除房间哈希
 	err := g.rdb.Del(ctx, key).Err()
@@ -202,45 +200,6 @@ func (g *GroupCacheRedis) DismissRoomCache(ctx context.Context, roomID string) e
 		return err
 	}
 	return nil
-}
-
-// 获取当前房间信息（包括成员、头像等）
-func (g *GroupCacheRedis) GetRoomInfoCache(ctx context.Context, roomID string) (*sdkws.RoomInfo, error) {
-	key := fmt.Sprintf("ROOM:%s", roomID)
-	// 获取哈希所有字段
-	data, err := g.rdb.HGetAll(ctx, key).Result()
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("room not found")
-	}
-
-	//num, _ := strconv.Atoi(data["mum"])
-	score, _ := strconv.ParseInt(data["score"], 10, 64)
-	num, _ := strconv.ParseInt(fmt.Sprintf("%v", data["num"]), 10, 64)
-	// 解析 ms 字段
-	var ms []string
-	if msJson, ok := data["ms"]; ok && msJson != "" {
-		_ = json.Unmarshal([]byte(msJson), &ms)
-	}
-	// 解析 imgs 字段
-	var imgs []string
-	if imgsJson, ok := data["imgs"]; ok && imgsJson != "" {
-		_ = json.Unmarshal([]byte(imgsJson), &imgs)
-	}
-
-	info := &sdkws.RoomInfo{
-		RoomID: data["id"],
-		Uid:    data["uid"],
-		Name:   data["name"],
-		Img:    data["img"],
-		Ms:     ms,
-		Imgs:   imgs,
-		Num:    num,
-		Score:  score,
-	}
-	return info, nil
 }
 
 // 原子操作：加入房间并分配位置（并发安全）
@@ -658,54 +617,6 @@ return cjson.encode({ms = ms, imgs = new_imgs})
 		return fmt.Errorf("unexpected lua result: %v", res)
 	}
 	return nil
-}
-
-// 获取房间列表，按积分倒序分页
-func (g *GroupCacheRedis) GetRoomListCache(ctx context.Context, page int32, pageSize int32) (*pbgroup.GetRoomListResp, error) {
-	start := int64((page - 1) * pageSize)
-	end := start + int64(pageSize) - 1
-	// 积分倒序
-	roomIDs, err := g.rdb.ZRevRange(ctx, "ROOM_LIST:", start, end).Result()
-	if err != nil {
-		return nil, err
-	}
-	var rooms []*sdkws.RoomInfo
-	for _, roomID := range roomIDs {
-
-		//println(roomID)
-
-		key := fmt.Sprintf("ROOM:%s", roomID)
-		data, err := g.rdb.HGetAll(ctx, key).Result()
-		if err != nil || len(data) == 0 {
-			continue
-		}
-		//num, _ := strconv.Atoi(data["num"])
-		score, _ := strconv.Atoi(data["score"])
-
-		var arr []string
-		err = json.Unmarshal([]byte(data["ms"]), &arr)
-		var imgs []string
-		if data["img"] != "" {
-			err = json.Unmarshal([]byte(data["imgs"]), &imgs)
-		}
-
-		room := sdkws.RoomInfo{
-			RoomID: data["id"],
-			Uid:    data["uid"],
-			Name:   data["name"],
-			Img:    data["img"],
-			Ms:     arr,
-
-			Imgs:  imgs,
-			Score: int64(score),
-		}
-		rooms = append(rooms, &room)
-	}
-
-	//println(len(rooms))
-	//println(len(rooms[0].RoomID))
-
-	return &pbgroup.GetRoomListResp{Rooms: rooms}, nil
 }
 
 // 更新房间积分（同时更新哈希和有序集合，保证房间列表排序正确）

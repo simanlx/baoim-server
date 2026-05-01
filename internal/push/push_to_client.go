@@ -54,13 +54,14 @@ type Pusher struct {
 	msgRpcClient           *rpcclient.MessageRpcClient
 	conversationRpcClient  *rpcclient.ConversationRpcClient
 	groupRpcClient         *rpcclient.GroupRpcClient
+	roomRpcClient          *rpcclient.RoomRpcClient
 }
 
 var errNoOfflinePusher = errors.New("no offlinePusher is configured")
 
 func NewPusher(config *config.GlobalConfig, discov discoveryregistry.SvcDiscoveryRegistry, offlinePusher offlinepush.OfflinePusher, database controller.PushDatabase,
 	groupLocalCache *rpccache.GroupLocalCache, conversationLocalCache *rpccache.ConversationLocalCache,
-	conversationRpcClient *rpcclient.ConversationRpcClient, groupRpcClient *rpcclient.GroupRpcClient, msgRpcClient *rpcclient.MessageRpcClient,
+	conversationRpcClient *rpcclient.ConversationRpcClient, groupRpcClient *rpcclient.GroupRpcClient, roomRpcClient *rpcclient.RoomRpcClient, msgRpcClient *rpcclient.MessageRpcClient,
 ) *Pusher {
 	return &Pusher{
 		config:                 config,
@@ -72,6 +73,7 @@ func NewPusher(config *config.GlobalConfig, discov discoveryregistry.SvcDiscover
 		msgRpcClient:           msgRpcClient,
 		conversationRpcClient:  conversationRpcClient,
 		groupRpcClient:         groupRpcClient,
+		roomRpcClient:          roomRpcClient,
 	}
 }
 
@@ -372,12 +374,19 @@ func (p *Pusher) Push2RoomGroup(ctx context.Context, groupID string, msg *sdkws.
 			if p.UnmarshalNotificationElem(msg.Content, &tips) != nil {
 				return err
 			}
-			// defer处理：删除成员并设置会话序列
-			defer func(groupID string, userIDs []string) {
-				if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
-					log.ZError(ctx, "MemberQuitNotification DeleteROOMMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
-				}
-			}(groupID, []string{tips.QuitUser.UserID})
+			// defer处理：删除成员并设置会话序列     //不用设置了直接删除了
+			//defer func(groupID string, userIDs []string) {
+			//	if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
+			//		log.ZError(ctx, "MemberQuitNotification DeleteROOMMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
+			//	}
+			//}(groupID, []string{tips.QuitUser.UserID})
+
+			defer func(groupID string, userID string) {
+				//在这里删除 用户的最小seq 和 已读seq  因为在消息推送过程中会设置seq
+				p.msgRpcClient.DelUserSeq(ctx, userID, "g_"+groupID)
+			}(groupID, tips.QuitUser.UserID)
+
+			println("为什么进来两次")
 			// 退出的用户也需要推送
 			pushToUserIDs = append(pushToUserIDs, tips.QuitUser.UserID)
 		case constant.RoomMemberKickedNotification:
@@ -388,13 +397,20 @@ func (p *Pusher) Push2RoomGroup(ctx context.Context, groupID string, msg *sdkws.
 			}
 			// 获取被踢用户ID列表
 			kickedUsers := utils.Slice(tips.KickedUserList, func(e *sdkws.GroupMemberFullInfo) string { return e.UserID })
-			// defer处理：删除成员并设置会话序列
+			// defer处理：删除成员并设置会话序列    //不用设置了直接删除了
+			//defer func(groupID string, userIDs []string) {
+			//	if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
+			//		log.ZError(ctx, "MemberKickedNotification DeleteroomMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
+			//	}
+			//}(groupID, kickedUsers)
+			// 被踢用户也需要推送
+
 			defer func(groupID string, userIDs []string) {
-				if err = p.DeleteRoomMemberAndSetConversationSeq(ctx, groupID, userIDs); err != nil {
-					log.ZError(ctx, "MemberKickedNotification DeleteroomMemberAndSetConversationSeq", err, "groupID", groupID, "userIDs", userIDs)
+				for _, userID := range userIDs {
+					p.msgRpcClient.DelUserSeq(ctx, userID, "g_"+groupID)
 				}
 			}(groupID, kickedUsers)
-			// 被踢用户也需要推送
+
 			pushToUserIDs = append(pushToUserIDs, kickedUsers...)
 		case constant.RoomGroupDismissedNotification:
 			// 群解散通知，消息先到，通知后到
@@ -415,7 +431,8 @@ func (p *Pusher) Push2RoomGroup(ctx context.Context, groupID string, msg *sdkws.
 				}
 				// defer处理：调用RPC解散群聊，清空成员
 				defer func(groupID string) {
-					if err = p.groupRpcClient.DismissRoom(ctx, groupID); err != nil {
+
+					if err = p.roomRpcClient.DismissRoom(ctx, groupID); err != nil {
 						log.ZError(ctx, "DismissRoom Notification clear members", err, "groupID", groupID)
 					}
 				}(groupID)

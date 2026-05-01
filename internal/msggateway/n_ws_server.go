@@ -15,7 +15,6 @@
 package msggateway
 
 import (
-	pbroom "baoim/protocol/room"
 	"context"
 	"encoding/json"
 	"errors"
@@ -98,7 +97,10 @@ type kickHandler struct {
 func (ws *WsServer) SetDiscoveryRegistry(disCov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) {
 	ws.MessageHandler = NewGrpcHandler(ws.validate, disCov, config)
 	u := rpcclient.NewUserRpcClient(disCov, config)
+	//增加 聊天室	rtc
+	r := rpcclient.NewRoomRpcClient(disCov, config)
 	ws.userClient = &u
+	ws.roomClient = &r
 	ws.disCov = disCov
 }
 
@@ -119,9 +121,8 @@ func (ws *WsServer) SetUserOnlineStatus(ctx context.Context, client *Client, sta
 		}
 	case constant.Offline:
 		//离线触发清理房间
-		_, _ = ws.roomClient.Client.CleanOfflineUser(ctx, &pbroom.OnlineUserReq{
-			UserID: client.UserID,
-		})
+
+		_ = ws.roomClient.CleanOfflineUser(ctx, client.UserID)
 
 		err := CallbackUserOffline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.ctx.GetConnID())
 		if err != nil {

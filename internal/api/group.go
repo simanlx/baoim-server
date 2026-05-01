@@ -27,34 +27,21 @@ func NewGroupApi(client rpcclient.Group) GroupApi {
 	return GroupApi(client)
 }
 
-// /增加 获取聊天室列表
-func (o *GroupApi) GetRoomList(c *gin.Context) {
-	a2r.Call(group.GroupClient.GetRoomList, o.Client, c)
-}
-
 func (o *GroupApi) CreateGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.CreateGroup, o.Client, c)
 }
-func (o *GroupApi) CreateGroupRoom(c *gin.Context) {
-	a2r.Call(group.GroupClient.CreateGroupRoom, o.Client, c)
-}
+
 func (o *GroupApi) SetGroupInfo(c *gin.Context) {
 	a2r.Call(group.GroupClient.SetGroupInfo, o.Client, c)
 }
 
-// 加入聊天室
-func (o *GroupApi) JoinRoom(c *gin.Context) {
-	a2r.Call(group.GroupClient.JoinRoom, o.Client, c)
-}
 func (o *GroupApi) JoinGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.JoinGroup, o.Client, c)
 }
 func (o *GroupApi) QuitGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.QuitGroup, o.Client, c)
 }
-func (o *GroupApi) QuitRoom(c *gin.Context) {
-	a2r.Call(group.GroupClient.QuitRoom, o.Client, c)
-}
+
 func (o *GroupApi) ApplicationGroupResponse(c *gin.Context) {
 	a2r.Call(group.GroupClient.GroupApplicationResponse, o.Client, c)
 }
@@ -79,17 +66,8 @@ func (o *GroupApi) GetGroupsInfo(c *gin.Context) {
 	a2r.Call(group.GroupClient.GetGroupsInfo, o.Client, c)
 }
 
-func (o *GroupApi) GetRoomInfo(c *gin.Context) {
-	a2r.Call(group.GroupClient.GetRoomInfo, o.Client, c)
-}
-
 func (o *GroupApi) KickGroupMember(c *gin.Context) {
 	a2r.Call(group.GroupClient.KickGroupMember, o.Client, c)
-}
-
-// 踢出聊天室成员
-func (o *GroupApi) KickRoomMember(c *gin.Context) {
-	a2r.Call(group.GroupClient.KickRoomMember, o.Client, c)
 }
 
 func (o *GroupApi) GetGroupMembersInfo(c *gin.Context) {
@@ -112,11 +90,6 @@ func (o *GroupApi) DismissGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.DismissGroup, o.Client, c)
 }
 
-// DismissRoom 解散聊天室
-func (o *GroupApi) DismissRoom(c *gin.Context) {
-	a2r.Call(group.GroupClient.DismissRoom, o.Client, c)
-}
-
 func (o *GroupApi) MuteGroupMember(c *gin.Context) {
 	a2r.Call(group.GroupClient.MuteGroupMember, o.Client, c)
 }
@@ -124,12 +97,7 @@ func (o *GroupApi) MuteGroupMember(c *gin.Context) {
 func (o *GroupApi) CancelMuteGroupMember(c *gin.Context) {
 	a2r.Call(group.GroupClient.CancelMuteGroupMember, o.Client, c)
 }
-func (o *GroupApi) MuteRoomMember(c *gin.Context) {
-	a2r.Call(group.GroupClient.MuteRoomMember, o.Client, c)
-}
-func (o *GroupApi) CancelMuteRoomMember(c *gin.Context) {
-	a2r.Call(group.GroupClient.CancelMuteRoomMember, o.Client, c)
-}
+
 func (o *GroupApi) MuteGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.MuteGroup, o.Client, c)
 }

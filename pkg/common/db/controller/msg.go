@@ -44,6 +44,9 @@ const (
 
 // CommonMsgDatabase defines the interface for message database operations.
 type CommonMsgDatabase interface {
+
+	// DelUserSeq 删除用户 最小seq 及 已读seq
+	DelUserSeq(ctx context.Context, uid string, conversationID string) error
 	// BatchInsertChat2DB inserts a batch of messages into the database for a specific conversation.
 	BatchInsertChat2DB(ctx context.Context, conversationID string, msgs []*sdkws.MsgData, currentMaxSeq int64) error
 	// RevokeMsg revokes a message in a conversation.
@@ -435,6 +438,7 @@ func (db *commonMsgDatabase) BatchInsertChat2Cache(ctx context.Context, conversa
 		log.ZError(ctx, "db.cache.SetMaxSeq error", err, "conversationID", conversationID)
 		prommetrics.SeqSetFailedCounter.Inc()
 	}
+
 	// 设置用户已读序列号
 	err = db.cache.SetHasReadSeqs(ctx, conversationID, userSeqMap)
 	if err != nil {
@@ -1033,6 +1037,9 @@ func (db *commonMsgDatabase) GetMaxSeqs(ctx context.Context, conversationIDs []s
 	return db.cache.GetMaxSeqs(ctx, conversationIDs)
 }
 
+func (db *commonMsgDatabase) DelUserSeq(ctx context.Context, uid string, conversationID string) error {
+	return db.cache.DelUserSeqCache(ctx, uid, conversationID)
+}
 func (db *commonMsgDatabase) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
 	return db.cache.GetMaxSeq(ctx, conversationID)
 }

@@ -44,6 +44,7 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 	offlinePusher := NewOfflinePusher(config, cacheModel)
 	database := controller.NewPushDatabase(cacheModel)
 	groupRpcClient := rpcclient.NewGroupRpcClient(client, config)
+	roomRpcClient := rpcclient.NewRoomRpcClient(client, config)
 	conversationRpcClient := rpcclient.NewConversationRpcClient(client, config)
 	msgRpcClient := rpcclient.NewMessageRpcClient(client, config)
 	pusher := NewPusher(
@@ -55,6 +56,7 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 		rpccache.NewConversationLocalCache(conversationRpcClient, rdb),
 		&conversationRpcClient,
 		&groupRpcClient,
+		&roomRpcClient,
 		&msgRpcClient,
 	)
 

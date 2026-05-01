@@ -28,6 +28,7 @@ import (
 )
 
 func (m *msgServer) GetConversationsHasReadAndMaxSeq(ctx context.Context, req *msg.GetConversationsHasReadAndMaxSeqReq) (resp *msg.GetConversationsHasReadAndMaxSeqResp, err error) {
+
 	var conversationIDs []string
 	if len(req.ConversationIDs) == 0 {
 		conversationIDs, err = m.ConversationLocalCache.GetConversationIDs(ctx, req.UserID)
@@ -72,6 +73,7 @@ func (m *msgServer) SetConversationHasReadSeq(
 	ctx context.Context,
 	req *msg.SetConversationHasReadSeqReq,
 ) (resp *msg.SetConversationHasReadSeqResp, err error) {
+
 	maxSeq, err := m.MsgDatabase.GetMaxSeq(ctx, req.ConversationID)
 	if err != nil {
 		return
@@ -144,6 +146,7 @@ func (m *msgServer) MarkConversationAsRead(
 	ctx context.Context,
 	req *msg.MarkConversationAsReadReq,
 ) (resp *msg.MarkConversationAsReadResp, err error) {
+
 	conversation, err := m.ConversationLocalCache.GetConversation(ctx, req.UserID, req.ConversationID)
 	if err != nil {
 		return nil, err
@@ -227,6 +230,7 @@ func (m *msgServer) sendMarkAsReadNotification(
 		Seqs:             seqs,
 		HasReadSeq:       hasReadSeq,
 	}
+
 	err := m.notificationSender.NotificationWithSesstionType(ctx, sendID, recvID, constant.HasReadReceipt, sessionType, tips)
 	if err != nil {
 		log.ZWarn(ctx, "send has read Receipt err", err)
