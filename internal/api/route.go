@@ -180,23 +180,41 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 	friendRouterGroup := r.Group("/friend", ParseToken)
 	{
 		f := NewFriendApi(*friendRpc)
+		// 删除好友
 		friendRouterGroup.POST("/delete_friend", f.DeleteFriend)
+		// 获取收到的好友申请列表
 		friendRouterGroup.POST("/get_friend_apply_list", f.GetFriendApplyList)
+		// 获取指定用户发起的好友申请
 		friendRouterGroup.POST("/get_designated_friend_apply", f.GetDesignatedFriendsApply)
+		// 获取自己发出的好友申请列表
 		friendRouterGroup.POST("/get_self_friend_apply_list", f.GetSelfApplyList)
+		// 获取好友列表
 		friendRouterGroup.POST("/get_friend_list", f.GetFriendList)
+		// 获取指定好友的基础信息
 		friendRouterGroup.POST("/get_designated_friends", f.GetDesignatedFriends)
+		// 发起好友申请
 		friendRouterGroup.POST("/add_friend", f.ApplyToAddFriend)
+		// 同意 / 拒绝好友申请
 		friendRouterGroup.POST("/add_friend_response", f.RespondFriendApply)
+		// 设置好友备注
 		friendRouterGroup.POST("/set_friend_remark", f.SetFriendRemark)
+		// 将用户加入黑名单
 		friendRouterGroup.POST("/add_black", f.AddBlack)
+		// 分页获取黑名单列表
 		friendRouterGroup.POST("/get_black_list", f.GetPaginationBlacks)
+		// 将用户移出黑名单
 		friendRouterGroup.POST("/remove_black", f.RemoveBlack)
+		// 批量导入好友
 		friendRouterGroup.POST("/import_friend", f.ImportFriends)
+		// 判断是否为好友关系
 		friendRouterGroup.POST("/is_friend", f.IsFriend)
+		// 获取所有好友 ID 列表
 		friendRouterGroup.POST("/get_friend_id", f.GetFriendIDs)
+		// 获取指定好友的详细信息
 		friendRouterGroup.POST("/get_specified_friends_info", f.GetSpecifiedFriendsInfo)
+		// 批量更新好友信息
 		friendRouterGroup.POST("/update_friends", f.UpdateFriends)
+
 	}
 	room := NewRoomApi(*roomRpc)
 	roomRouter := r.Group("/room", ParseToken)

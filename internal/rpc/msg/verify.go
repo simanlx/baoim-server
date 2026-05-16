@@ -56,6 +56,11 @@ func (m *msgServer) messageVerification(ctx context.Context, data *msg.SendMsgRe
 		if len(m.config.Manager.UserID) > 0 && utils.IsContain(data.MsgData.SendID, m.config.Manager.UserID) {
 			return nil // 管理员不做限制
 		}
+
+		if data.MsgData.ContentType == constant.Gift {
+			return nil // 送花消息不限制
+		}
+
 		if utils.IsContain(data.MsgData.SendID, m.config.IMAdmin.UserID) {
 			return nil // IM管理员不做限制
 		}
@@ -91,6 +96,7 @@ func (m *msgServer) messageVerification(ctx context.Context, data *msg.SendMsgRe
 			data.MsgData.ContentType != constant.GroupDismissedNotification && data.MsgData.ContentType != constant.SignalingNotification {
 			return errs.ErrDismissedAlready.Wrap() // 群已解散且不是解散通知
 		}
+
 		if groupInfo.GroupType == constant.SuperGroup {
 			return nil // 超级群直接通过
 		}
@@ -210,6 +216,8 @@ func (m *msgServer) encapsulateMsgData(msg *sdkws.MsgData) {
 	case constant.Location:
 		fallthrough
 	case constant.Custom:
+		fallthrough
+	case constant.Gift:
 		fallthrough
 	case constant.Quote:
 	case constant.Revoke:

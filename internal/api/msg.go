@@ -72,6 +72,8 @@ func (m MessageApi) newUserSendMsgReq(_ *gin.Context, params *apistruct.SendMsg)
 		fallthrough
 	case constant.Custom:
 		fallthrough
+	case constant.Gift:
+		fallthrough
 	case constant.Voice:
 		fallthrough
 	case constant.Video:
@@ -197,6 +199,8 @@ func (m *MessageApi) getSendMsgReq(c *gin.Context, req apistruct.SendMsg) (sendM
 	case constant.AtText:
 		data = apistruct.AtElem{}
 	case constant.Custom:
+		data = apistruct.CustomElem{}
+	case constant.Gift:
 		data = apistruct.CustomElem{}
 	case constant.OANotification:
 		data = apistruct.OANotificationElem{}
