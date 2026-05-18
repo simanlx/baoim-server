@@ -31,6 +31,7 @@ type FriendModel struct {
 	OperatorUserID string    `bson:"operator_user_id"`
 	Ex             string    `bson:"ex"`
 	IsPinned       bool      `bson:"is_pinned"`
+	Del            bool      `bson:"del"`
 }
 
 // FriendModelInterface defines the operations for managing friends in MongoDB.

@@ -253,32 +253,65 @@ func (f *friendDatabase) AgreeFriendRequest(ctx context.Context, friendRequest *
 		if err != nil {
 			return err
 		}
-		existsMap := utils.SliceSet(utils.Slice(exists, func(friend *relation.FriendModel) [2]string {
-			return [...]string{friend.OwnerUserID, friend.FriendUserID} // My - Friend
-		}))
+
+		//existsMap := utils.SliceSet(utils.Slice(exists, func(friend *relation.FriendModel) [2]string {
+		//	return [...]string{friend.OwnerUserID, friend.FriendUserID} // My - Friend
+		//}))
+
+		// 构建现有好友关系的映射，并记录 del 状态
+		existsMap := make(map[[2]string]*relation.FriendModel)
+		for _, friend := range exists {
+			key := [2]string{friend.OwnerUserID, friend.FriendUserID}
+			existsMap[key] = friend
+		}
+
 		var adds []*relation.FriendModel
-		if _, ok := existsMap[[...]string{friendRequest.ToUserID, friendRequest.FromUserID}]; !ok { // My - Friend
-			adds = append(
-				adds,
-				&relation.FriendModel{
-					OwnerUserID:    friendRequest.ToUserID,
-					FriendUserID:   friendRequest.FromUserID,
-					AddSource:      int32(constant.BecomeFriendByApply),
-					OperatorUserID: friendRequest.FromUserID,
-				},
-			)
+		var updates []*relation.FriendModel
+
+		// 方向1: ToUserID -> FromUserID
+		key1 := [2]string{friendRequest.ToUserID, friendRequest.FromUserID}
+		if existing1, ok := existsMap[key1]; !ok {
+			adds = append(adds, &relation.FriendModel{
+				OwnerUserID:    friendRequest.ToUserID,
+				FriendUserID:   friendRequest.FromUserID,
+				AddSource:      int32(constant.BecomeFriendByApply),
+				OperatorUserID: friendRequest.FromUserID, // 修正：使用当前操作用户
+				Del:            false,
+				CreateTime:     now,
+			})
+		} else if existing1.Del {
+			existing1.Del = false
+			updates = append(updates, existing1)
 		}
-		if _, ok := existsMap[[...]string{friendRequest.FromUserID, friendRequest.ToUserID}]; !ok { // My - Friend
-			adds = append(
-				adds,
-				&relation.FriendModel{
-					OwnerUserID:    friendRequest.FromUserID,
-					FriendUserID:   friendRequest.ToUserID,
-					AddSource:      int32(constant.BecomeFriendByApply),
-					OperatorUserID: friendRequest.FromUserID,
-				},
-			)
+
+		// 方向2: FromUserID -> ToUserID
+		key2 := [2]string{friendRequest.FromUserID, friendRequest.ToUserID}
+		if existing2, ok := existsMap[key2]; !ok {
+			adds = append(adds, &relation.FriendModel{
+				OwnerUserID:    friendRequest.FromUserID,
+				FriendUserID:   friendRequest.ToUserID,
+				AddSource:      int32(constant.BecomeFriendByApply),
+				OperatorUserID: friendRequest.FromUserID, // 修正：使用当前操作用户
+				Del:            false,
+				CreateTime:     now,
+			})
+		} else if existing2.Del {
+			existing2.Del = false
+			updates = append(updates, existing2)
 		}
+
+		// 执行更新 - 只更新 Del 字段
+		for _, u := range updates {
+			if err := f.friend.UpdateByMap(ctx, u.OwnerUserID, u.FriendUserID, map[string]any{
+				"del":              u.Del,
+				"add_source":       int32(constant.BecomeFriendByApply),
+				"operator_user_id": friendRequest.FromUserID,
+				"create_time":      now,
+			}); err != nil {
+				return err
+			}
+		}
+
 		if len(adds) > 0 {
 			if err := f.friend.Create(ctx, adds); err != nil {
 				return err

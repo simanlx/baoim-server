@@ -52,12 +52,31 @@ func (f *FriendMgo) Create(ctx context.Context, friends []*relation.FriendModel)
 }
 
 // Delete removes specified friends of the owner user.
+//
+//	func (f *FriendMgo) Delete(ctx context.Context, ownerUserID string, friendUserIDs []string) error {
+//		filter := bson.M{
+//			"owner_user_id":  ownerUserID,
+//			"friend_user_id": bson.M{"$in": friendUserIDs},
+//		}
+//		return mgoutil.DeleteOne(ctx, f.coll, filter)
+//	}
 func (f *FriendMgo) Delete(ctx context.Context, ownerUserID string, friendUserIDs []string) error {
-	filter := bson.M{
+	// 1. 硬删除：我 → 2,3,4
+	if err := mgoutil.DeleteMany(ctx, f.coll, bson.M{
 		"owner_user_id":  ownerUserID,
 		"friend_user_id": bson.M{"$in": friendUserIDs},
+	}); err != nil {
+		return err
 	}
-	return mgoutil.DeleteOne(ctx, f.coll, filter)
+
+	// 2. 软更新：2,3,4 → 我
+	_, err := mgoutil.UpdateMany(ctx, f.coll, bson.M{
+		"owner_user_id":  bson.M{"$in": friendUserIDs},
+		"friend_user_id": ownerUserID,
+	}, bson.M{
+		"$set": bson.M{"del": true},
+	})
+	return err
 }
 
 // UpdateByMap updates specific fields of a friend document using a map.
