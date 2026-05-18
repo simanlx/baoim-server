@@ -37,6 +37,8 @@ type FriendDatabase interface {
 	// AddFriendRequest adds or updates a friend request
 	AddFriendRequest(ctx context.Context, fromUserID, toUserID string, reqMsg string, ex string) (err error)
 
+	// DeleteFriendRequest deletes a friend request 删除好友请求
+	DeleteFriendRequest(ctx context.Context, fromUserID, toUserID string) (err error)
 	// BecomeFriends first checks if the users are already in the friends table; if not, it inserts them as friends
 	BecomeFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, addSource int32) (err error)
 
@@ -133,6 +135,11 @@ func (f *friendDatabase) AddFriendRequest(ctx context.Context, fromUserID, toUse
 			return err
 		}
 	})
+}
+
+func (f *friendDatabase) DeleteFriendRequest(ctx context.Context, fromUserID, toUserID string) (err error) {
+	//删除好友请求  删除成功返回null
+	return f.friendRequest.Delete(ctx, fromUserID, toUserID)
 }
 
 // (1) First determine whether it is in the friends list (in or out does not return an error) (2) for not in the friends list can be inserted.
@@ -286,7 +293,9 @@ func (f *friendDatabase) Delete(ctx context.Context, ownerUserID string, friendU
 	if err := f.friend.Delete(ctx, ownerUserID, friendUserIDs); err != nil {
 		return err
 	}
+
 	return f.cache.DelFriendIDs(append(friendUserIDs, ownerUserID)...).ExecDel(ctx)
+
 }
 
 // UpdateRemark updates the remark for a friend. Zero value for remark is also supported.

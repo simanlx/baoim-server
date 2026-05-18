@@ -230,6 +230,12 @@ func (s *friendServer) DeleteFriend(ctx context.Context, req *pbfriend.DeleteFri
 	if err := s.friendDatabase.Delete(ctx, req.OwnerUserID, []string{req.FriendUserID}); err != nil {
 		return nil, err
 	}
+
+	//删除自己发送的好友请求
+	s.friendDatabase.DeleteFriendRequest(ctx, req.OwnerUserID, req.FriendUserID)
+	//全部删除
+	s.friendDatabase.DeleteFriendRequest(ctx, req.FriendUserID, req.OwnerUserID)
+
 	s.notificationSender.FriendDeletedNotification(ctx, req)
 	if err := CallbackAfterDeleteFriend(ctx, s.config, req); err != nil {
 		return nil, err
