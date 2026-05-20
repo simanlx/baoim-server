@@ -28,10 +28,10 @@ jobs:
     permissions: write-all
     steps:
       - name: Setup Node.js Environment
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '16'
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: di-sukharev/opencommit@github-action-v1.0.4
