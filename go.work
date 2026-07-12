@@ -2,7 +2,7 @@ go 1.19
 
 use (
 	.
-	./test/typecheck
+	//./test/typecheck
 	./tools/changelog
 	//./tools/imctl
 	./tools/infra

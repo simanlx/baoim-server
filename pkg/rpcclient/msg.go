@@ -156,6 +156,15 @@ func (m *MessageRpcClient) SendMsg(ctx context.Context, req *msg.SendMsgReq) (*m
 	return resp, err
 }
 
+// 增加
+func (m *MessageRpcClient) MsgVerification(ctx context.Context, req *msg.SendMsgReq) (*msg.MsgVerificationResp, error) {
+	resp, err := m.Client.MsgVerification(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 func (m *MessageRpcClient) GetMaxSeq(ctx context.Context, req *sdkws.GetMaxSeqReq) (*sdkws.GetMaxSeqResp, error) {
 	resp, err := m.Client.GetMaxSeq(ctx, req)
 	return resp, err

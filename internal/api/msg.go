@@ -250,6 +250,12 @@ func (m *MessageApi) SendMessage(c *gin.Context) {
 	apiresp.GinSuccess(c, respPb)
 }
 
+// 验证消息接口   如是否是好友 // 是否在群祖中等
+func (m *MessageApi) MsgVerification(c *gin.Context) {
+	a2r.Call(msg.MsgClient.MsgVerification, m.Client, c)
+
+}
+
 func (m *MessageApi) SendBusinessNotification(c *gin.Context) {
 	req := struct {
 		Key        string `json:"key"`

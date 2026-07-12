@@ -54,6 +54,20 @@ func (m *msgServer) SendMsg(ctx context.Context, req *pbmsg.SendMsgReq) (resp *p
 	}
 }
 
+// 增加
+func (m *msgServer) MsgVerification(ctx context.Context, req *pbmsg.SendMsgReq) (resp *pbmsg.MsgVerificationResp, error error) {
+	resp = &pbmsg.MsgVerificationResp{} // 新建响应结构体
+
+	if req.MsgData != nil {
+		if err := m.messageVerification(ctx, req); err != nil { // 消息验证
+			return resp, err
+		}
+	} else { // 消息体为空
+		return resp, errs.ErrArgs.Wrap("msgData is nil")
+	}
+	return resp, nil
+}
+
 func (m *msgServer) sendMsgSuperGroupChat(
 	ctx context.Context,
 	req *pbmsg.SendMsgReq,
