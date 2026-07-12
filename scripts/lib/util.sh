@@ -302,24 +302,16 @@ openim::util::check_ports() {
     # Iterate over each given port.
     for port in "$@"; do
 
-      #不支持mac
-        # Use the `ss` command to find process information related to the given port.
-#        if command -v ss > /dev/null 2>&1; then
-#            info=$(ss -ltnp | grep ":$port" || true)
-#        else
-#            info=$(netstat -ltnp | grep ":$port" || true)
-#        fi
 
-#增加支持mac
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-      if command -v ss > /dev/null 2>&1; then
-        info=$(ss -ltnp | grep ":$port" || true)
-      else
-        info=$(netstat -ltnp | grep ":$port" || true)
-      fi
-      elif [[ "$OSTYPE" == "darwin"* ]]; then
-      # For macOS, use lsof
-      info=$(lsof -P -i:"$port" | grep "LISTEN" || true)
+        if command -v ss > /dev/null 2>&1; then
+          info=$(ss -ltnp | grep ":$port" || true)
+        else
+          info=$(netstat -ltnp | grep ":$port" || true)
+        fi
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # For macOS, use lsof
+        info=$(lsof -P -i:"$port" | grep "LISTEN" || true)
     fi
 
 
@@ -328,25 +320,28 @@ openim::util::check_ports() {
         if [[ -z $info ]]; then
             not_started+=($port)
         else
-                     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-                         # Extract relevant details for Linux: Process Name, PID, and FD.
-                         details=$(echo $info | sed -n 's/.*users:(("\([^"]*\)",pid=\([^,]*\),fd=\([^)]*\))).*/\1 \2 \3/p')
-                         command=$(echo $details | awk '{print $1}')
-                         pid=$(echo $details | awk '{print $2}')
-                         fd=$(echo $details | awk '{print $3}')
-                     elif [[ "$OSTYPE" == "darwin"* ]]; then
-                         # Handle extraction for macOS
-                         pid=$(echo $info | awk '{print $2}' | cut -d'/' -f1)
-                         command=$(ps -p $pid -o comm= | xargs basename)
-                         fd=$(echo $info | awk '{print $4}' | cut -d'/' -f1)
-                     fi
-
             # Extract relevant details: Process Name, PID, and FD.
-#            local details=$(echo $info | sed -n 's/.*users:(("\([^"]*\)",pid=\([^,]*\),fd=\([^)]*\))).*/\1 \2 \3/p')
-#            local command=$(echo $details | awk '{print $1}')
-#            local pid=$(echo $details | awk '{print $2}')
-#            local fd=$(echo $details | awk '{print $3}')
+            local details=$(echo $info | sed -n 's/.*users:(("\([^"]*\)",pid=\([^,]*\),fd=\([^)]*\))).*/\1 \2 \3/p')
+            local command=$(echo $details | awk '{print $1}')
+            local pid=$(echo $details | awk '{print $2}')
+            local fd=$(echo $details | awk '{print $3}')
 
+
+             if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+                 # Extract relevant details for Linux: Process Name, PID, and FD.
+                local details=$(echo $info | sed -n 's/.*users:(("\([^"]*\)",pid=\([^,]*\),fd=\([^)]*\))).*/\1 \2 \3/p')
+                local command=$(echo $details | awk '{print $1}')
+                local pid=$(echo $details | awk '{print $2}')
+                local fd=$(echo $details | awk '{print $3}')
+             elif [[ "$OSTYPE" == "darwin"* ]]; then
+                # Handle extraction for macOS
+                pid=$(echo $info | awk '{print $2}' | cut -d'/' -f1)
+                command=$(ps -p $pid -o comm= | xargs basename)
+                fd=$(echo $info | awk '{print $4}' | cut -d'/' -f1)
+
+             fi
+
+            
             # Get the start time of the process using the PID
             if [[ -z $pid ]]; then
                 local start_time="N/A"
@@ -354,7 +349,7 @@ openim::util::check_ports() {
                 # Get the start time of the process using the PID
                 local start_time=$(ps -p $pid -o lstart=)
             fi
-
+            
             started+=("Port $port - Command: $command, PID: $pid, FD: $fd, Started: $start_time")
         fi
     done
@@ -400,25 +395,13 @@ openim::util::check_process_names() {
     # Function to get the port of a process
     get_port() {
         local pid=$1
-#        if command -v ss > /dev/null 2>&1; then
-#            # used ss comment
-#            ss -ltnp 2>/dev/null | grep $pid | awk '{print $4}' | cut -d ':' -f2
-#        else
-#            # used netstat comment replace ss
-#            netstat -ltnp 2>/dev/null | grep $pid | awk '{print $4}' | sed 's/.*://'
-#        fi
-
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-      # Linux
-      ss -ltnp 2>/dev/null | grep $pid | awk '{print $4}' | cut -d ':' -f2
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-      # macOS
-      lsof -nP -iTCP -sTCP:LISTEN -a -p $pid | awk 'NR>1 {print $9}' | sed 's/.*://'
-    else
-      echo "Unsupported OS"
-      return 1
-    fi
-
+        if command -v ss > /dev/null 2>&1; then
+            # used ss comment
+            ss -ltnp 2>/dev/null | grep $pid | awk '{print $4}' | cut -d ':' -f2
+        else
+            # used netstat comment replace ss
+            netstat -ltnp 2>/dev/null | grep $pid | awk '{print $4}' | sed 's/.*://'
+        fi
     }
 
     # Arrays to collect details of processes
