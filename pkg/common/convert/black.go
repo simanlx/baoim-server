@@ -17,17 +17,12 @@ package convert
 import (
 	"context"
 
+	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/sdkws"
 	sdk "baoim/protocol/sdkws"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
-func BlackDB2Pb(
-	ctx context.Context,
-	blackDBs []*relation.BlackModel,
-	f func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error),
-) (blackPbs []*sdk.BlackInfo, err error) {
+func BlackDB2Pb(ctx context.Context, blackDBs []*relation.BlackModel, f func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error)) (blackPbs []*sdk.BlackInfo, err error) {
 	if len(blackDBs) == 0 {
 		return nil, nil
 	}

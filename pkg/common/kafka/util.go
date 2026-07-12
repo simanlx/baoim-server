@@ -19,23 +19,35 @@ import (
 	"os"
 	"strings"
 
-	"github.com/IBM/sarama"
-
-	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/tls"
+	"github.com/IBM/sarama"
 )
 
+type TLSConfig struct {
+	CACrt              string
+	ClientCrt          string
+	ClientKey          string
+	ClientKeyPwd       string
+	InsecureSkipVerify bool
+}
+
 // SetupTLSConfig set up the TLS config from config file.
-func SetupTLSConfig(cfg *sarama.Config) {
-	if config.Config.Kafka.TLS != nil {
+func SetupTLSConfig(cfg *sarama.Config, tlsConfig *TLSConfig) error {
+	if tlsConfig != nil {
 		cfg.Net.TLS.Enable = true
-		cfg.Net.TLS.Config = tls.NewTLSConfig(
-			config.Config.Kafka.TLS.ClientCrt,
-			config.Config.Kafka.TLS.ClientKey,
-			config.Config.Kafka.TLS.CACrt,
-			[]byte(config.Config.Kafka.TLS.ClientKeyPwd),
+		tlsConfig, err := tls.NewTLSConfig(
+			tlsConfig.ClientCrt,
+			tlsConfig.ClientKey,
+			tlsConfig.CACrt,
+			[]byte(tlsConfig.ClientKeyPwd),
+			tlsConfig.InsecureSkipVerify,
 		)
+		if err != nil {
+			return err
+		}
+		cfg.Net.TLS.Config = tlsConfig
 	}
+	return nil
 }
 
 // getEnvOrConfig returns the value of the environment variable if it exists,

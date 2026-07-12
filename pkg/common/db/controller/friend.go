@@ -16,19 +16,18 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"baoim/tools/pagination"
-
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/constant"
 	"baoim/tools/errs"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
+	"baoim/tools/pagination"
 	"baoim/tools/tx"
 	"baoim/tools/utils"
-
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 type FriendDatabase interface {
@@ -38,6 +37,8 @@ type FriendDatabase interface {
 	// AddFriendRequest adds or updates a friend request
 	AddFriendRequest(ctx context.Context, fromUserID, toUserID string, reqMsg string, ex string) (err error)
 
+	// DeleteFriendRequest deletes a friend request 删除好友请求
+	DeleteFriendRequest(ctx context.Context, fromUserID, toUserID string) (err error)
 	// BecomeFriends first checks if the users are already in the friends table; if not, it inserts them as friends
 	BecomeFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, addSource int32) (err error)
 
@@ -74,14 +75,8 @@ type FriendDatabase interface {
 	// FindBothFriendRequests finds friend requests sent and received
 	FindBothFriendRequests(ctx context.Context, fromUserID, toUserID string) (friends []*relation.FriendRequestModel, err error)
 
-	// UpdateFriendPinStatus updates the pinned status of a friend
-	UpdateFriendPinStatus(ctx context.Context, ownerUserID string, friendUserID string, isPinned bool) (err error)
-
-	// UpdateFriendRemark updates the remark for a friend
-	UpdateFriendRemark(ctx context.Context, ownerUserID string, friendUserID string, remark string) (err error)
-
-	// UpdateFriendEx updates the 'ex' field for a friend
-	UpdateFriendEx(ctx context.Context, ownerUserID string, friendUserID string, ex string) (err error)
+	// UpdateFriends updates fields for friends
+	UpdateFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, val map[string]any) (err error)
 }
 
 type friendDatabase struct {
@@ -95,20 +90,30 @@ func NewFriendDatabase(friend relation.FriendModelInterface, friendRequest relat
 	return &friendDatabase{friend: friend, friendRequest: friendRequest, cache: cache, tx: tx}
 }
 
-// ok 检查user2是否在user1的好友列表中(inUser1Friends==true) 检查user1是否在user2的好友列表中(inUser2Friends==true).
+// CheckIn verifies if user2 is in user1's friend list (inUser1Friends returns true) and
+// if user1 is in user2's friend list (inUser2Friends returns true).
 func (f *friendDatabase) CheckIn(ctx context.Context, userID1, userID2 string) (inUser1Friends bool, inUser2Friends bool, err error) {
+	// Retrieve friend IDs of userID1 from the cache
 	userID1FriendIDs, err := f.cache.GetFriendIDs(ctx, userID1)
 	if err != nil {
+		err = fmt.Errorf("error retrieving friend IDs for user %s: %w", userID1, err)
 		return
 	}
+
+	// Retrieve friend IDs of userID2 from the cache
 	userID2FriendIDs, err := f.cache.GetFriendIDs(ctx, userID2)
 	if err != nil {
+		err = fmt.Errorf("error retrieving friend IDs for user %s: %w", userID2, err)
 		return
 	}
-	return utils.IsContain(userID2, userID1FriendIDs), utils.IsContain(userID1, userID2FriendIDs), nil
+
+	// Check if userID2 is in userID1's friend list and vice versa
+	inUser1Friends = utils.IsContain(userID2, userID1FriendIDs)
+	inUser2Friends = utils.IsContain(userID1, userID2FriendIDs)
+	return inUser1Friends, inUser2Friends, nil
 }
 
-// 增加或者更新好友申请 如果之前有记录则更新，没有记录则新增.
+// AddFriendRequest adds or updates a friend request.
 func (f *friendDatabase) AddFriendRequest(ctx context.Context, fromUserID, toUserID string, reqMsg string, ex string) (err error) {
 	return f.tx.Transaction(ctx, func(ctx context.Context) error {
 		_, err := f.friendRequest.Take(ctx, fromUserID, toUserID)
@@ -132,11 +137,16 @@ func (f *friendDatabase) AddFriendRequest(ctx context.Context, fromUserID, toUse
 	})
 }
 
-// (1)先判断是否在好友表 （在不在都不返回错误） (2)对于不在好友列表的 插入即可.
+func (f *friendDatabase) DeleteFriendRequest(ctx context.Context, fromUserID, toUserID string) (err error) {
+	//删除好友请求  删除成功返回null
+	return f.friendRequest.Delete(ctx, fromUserID, toUserID)
+}
+
+// (1) First determine whether it is in the friends list (in or out does not return an error) (2) for not in the friends list can be inserted.
 func (f *friendDatabase) BecomeFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, addSource int32) (err error) {
 	return f.tx.Transaction(ctx, func(ctx context.Context) error {
 		cache := f.cache.NewCache()
-		// 先find 找出重复的 去掉重复的
+		// User find friends
 		fs1, err := f.friend.FindFriends(ctx, ownerUserID, friendUserIDs)
 		if err != nil {
 			return err
@@ -176,26 +186,37 @@ func (f *friendDatabase) BecomeFriends(ctx context.Context, ownerUserID string, 
 	})
 }
 
-// 拒绝好友申请 (1)检查是否有申请记录且为未处理状态 （没有记录返回错误） (2)修改申请记录 已拒绝.
-func (f *friendDatabase) RefuseFriendRequest(ctx context.Context, friendRequest *relation.FriendRequestModel) (err error) {
+// RefuseFriendRequest rejects a friend request. It first checks for an existing, unprocessed request.
+// If no such request exists, it returns an error. Otherwise, it marks the request as refused.
+func (f *friendDatabase) RefuseFriendRequest(ctx context.Context, friendRequest *relation.FriendRequestModel) error {
+	// Attempt to retrieve the friend request from the database.
 	fr, err := f.friendRequest.Take(ctx, friendRequest.FromUserID, friendRequest.ToUserID)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to retrieve friend request from %s to %s: %w", friendRequest.FromUserID, friendRequest.ToUserID, err)
 	}
+
+	// Check if the friend request has already been handled.
 	if fr.HandleResult != 0 {
-		return errs.ErrArgs.Wrap("the friend request has been processed")
+		return fmt.Errorf("friend request from %s to %s has already been processed", friendRequest.FromUserID, friendRequest.ToUserID)
 	}
-	log.ZDebug(ctx, "refuse friend request", "friendRequest db", fr, "friendRequest arg", friendRequest)
+
+	// Log the action of refusing the friend request for debugging and auditing purposes.
+	log.ZDebug(ctx, "Refusing friend request", map[string]interface{}{
+		"DB_FriendRequest":  fr,
+		"Arg_FriendRequest": friendRequest,
+	})
+
+	// Mark the friend request as refused and update the handle time.
 	friendRequest.HandleResult = constant.FriendResponseRefuse
 	friendRequest.HandleTime = time.Now()
-	err = f.friendRequest.Update(ctx, friendRequest)
-	if err != nil {
-		return err
+	if err := f.friendRequest.Update(ctx, friendRequest); err != nil {
+		return fmt.Errorf("failed to update friend request from %s to %s as refused: %w", friendRequest.FromUserID, friendRequest.ToUserID, err)
 	}
+
 	return nil
 }
 
-// AgreeFriendRequest 同意好友申请  (1)检查是否有申请记录且为未处理状态 （没有记录返回错误） (2)检查是否好友（不返回错误）   (3) 建立双向好友关系（存在的忽略）.
+// AgreeFriendRequest accepts a friend request. It first checks for an existing, unprocessed request.
 func (f *friendDatabase) AgreeFriendRequest(ctx context.Context, friendRequest *relation.FriendRequestModel) (err error) {
 	return f.tx.Transaction(ctx, func(ctx context.Context) error {
 		defer log.ZDebug(ctx, "return line")
@@ -232,32 +253,65 @@ func (f *friendDatabase) AgreeFriendRequest(ctx context.Context, friendRequest *
 		if err != nil {
 			return err
 		}
-		existsMap := utils.SliceSet(utils.Slice(exists, func(friend *relation.FriendModel) [2]string {
-			return [...]string{friend.OwnerUserID, friend.FriendUserID} // 自己 - 好友
-		}))
+
+		//existsMap := utils.SliceSet(utils.Slice(exists, func(friend *relation.FriendModel) [2]string {
+		//	return [...]string{friend.OwnerUserID, friend.FriendUserID} // My - Friend
+		//}))
+
+		// 构建现有好友关系的映射，并记录 del 状态
+		existsMap := make(map[[2]string]*relation.FriendModel)
+		for _, friend := range exists {
+			key := [2]string{friend.OwnerUserID, friend.FriendUserID}
+			existsMap[key] = friend
+		}
+
 		var adds []*relation.FriendModel
-		if _, ok := existsMap[[...]string{friendRequest.ToUserID, friendRequest.FromUserID}]; !ok { // 自己 - 好友
-			adds = append(
-				adds,
-				&relation.FriendModel{
-					OwnerUserID:    friendRequest.ToUserID,
-					FriendUserID:   friendRequest.FromUserID,
-					AddSource:      int32(constant.BecomeFriendByApply),
-					OperatorUserID: friendRequest.FromUserID,
-				},
-			)
+		var updates []*relation.FriendModel
+
+		// 方向1: ToUserID -> FromUserID
+		key1 := [2]string{friendRequest.ToUserID, friendRequest.FromUserID}
+		if existing1, ok := existsMap[key1]; !ok {
+			adds = append(adds, &relation.FriendModel{
+				OwnerUserID:    friendRequest.ToUserID,
+				FriendUserID:   friendRequest.FromUserID,
+				AddSource:      int32(constant.BecomeFriendByApply),
+				OperatorUserID: friendRequest.FromUserID, // 修正：使用当前操作用户
+				Del:            false,
+				CreateTime:     now,
+			})
+		} else if existing1.Del {
+			existing1.Del = false
+			updates = append(updates, existing1)
 		}
-		if _, ok := existsMap[[...]string{friendRequest.FromUserID, friendRequest.ToUserID}]; !ok { // 好友 - 自己
-			adds = append(
-				adds,
-				&relation.FriendModel{
-					OwnerUserID:    friendRequest.FromUserID,
-					FriendUserID:   friendRequest.ToUserID,
-					AddSource:      int32(constant.BecomeFriendByApply),
-					OperatorUserID: friendRequest.FromUserID,
-				},
-			)
+
+		// 方向2: FromUserID -> ToUserID
+		key2 := [2]string{friendRequest.FromUserID, friendRequest.ToUserID}
+		if existing2, ok := existsMap[key2]; !ok {
+			adds = append(adds, &relation.FriendModel{
+				OwnerUserID:    friendRequest.FromUserID,
+				FriendUserID:   friendRequest.ToUserID,
+				AddSource:      int32(constant.BecomeFriendByApply),
+				OperatorUserID: friendRequest.FromUserID, // 修正：使用当前操作用户
+				Del:            false,
+				CreateTime:     now,
+			})
+		} else if existing2.Del {
+			existing2.Del = false
+			updates = append(updates, existing2)
 		}
+
+		// 执行更新 - 只更新 Del 字段
+		for _, u := range updates {
+			if err := f.friend.UpdateByMap(ctx, u.OwnerUserID, u.FriendUserID, map[string]any{
+				"del":              u.Del,
+				"add_source":       int32(constant.BecomeFriendByApply),
+				"operator_user_id": friendRequest.FromUserID,
+				"create_time":      now,
+			}); err != nil {
+				return err
+			}
+		}
+
 		if len(adds) > 0 {
 			if err := f.friend.Create(ctx, adds); err != nil {
 				return err
@@ -267,15 +321,17 @@ func (f *friendDatabase) AgreeFriendRequest(ctx context.Context, friendRequest *
 	})
 }
 
-// 删除好友  外部判断是否好友关系.
+// Delete removes a friend relationship. It is assumed that the external caller has verified the friendship status.
 func (f *friendDatabase) Delete(ctx context.Context, ownerUserID string, friendUserIDs []string) (err error) {
 	if err := f.friend.Delete(ctx, ownerUserID, friendUserIDs); err != nil {
 		return err
 	}
+
 	return f.cache.DelFriendIDs(append(friendUserIDs, ownerUserID)...).ExecDel(ctx)
+
 }
 
-// 更新好友备注 零值也支持.
+// UpdateRemark updates the remark for a friend. Zero value for remark is also supported.
 func (f *friendDatabase) UpdateRemark(ctx context.Context, ownerUserID, friendUserID, remark string) (err error) {
 	if err := f.friend.UpdateRemark(ctx, ownerUserID, friendUserID, remark); err != nil {
 		return err
@@ -283,27 +339,27 @@ func (f *friendDatabase) UpdateRemark(ctx context.Context, ownerUserID, friendUs
 	return f.cache.DelFriend(ownerUserID, friendUserID).ExecDel(ctx)
 }
 
-// 获取ownerUserID的好友列表 无结果不返回错误.
+// PageOwnerFriends retrieves the list of friends for the ownerUserID. It does not return an error if the result is empty.
 func (f *friendDatabase) PageOwnerFriends(ctx context.Context, ownerUserID string, pagination pagination.Pagination) (total int64, friends []*relation.FriendModel, err error) {
 	return f.friend.FindOwnerFriends(ctx, ownerUserID, pagination)
 }
 
-// friendUserID在哪些人的好友列表中.
+// PageInWhoseFriends identifies in whose friend lists the friendUserID appears.
 func (f *friendDatabase) PageInWhoseFriends(ctx context.Context, friendUserID string, pagination pagination.Pagination) (total int64, friends []*relation.FriendModel, err error) {
 	return f.friend.FindInWhoseFriends(ctx, friendUserID, pagination)
 }
 
-// 获取我发出去的好友申请  无结果不返回错误.
+// PageFriendRequestFromMe retrieves friend requests sent by me. It does not return an error if the result is empty.
 func (f *friendDatabase) PageFriendRequestFromMe(ctx context.Context, userID string, pagination pagination.Pagination) (total int64, friends []*relation.FriendRequestModel, err error) {
 	return f.friendRequest.FindFromUserID(ctx, userID, pagination)
 }
 
-// 获取我收到的的好友申请 无结果不返回错误.
+// PageFriendRequestToMe retrieves friend requests received by me. It does not return an error if the result is empty.
 func (f *friendDatabase) PageFriendRequestToMe(ctx context.Context, userID string, pagination pagination.Pagination) (total int64, friends []*relation.FriendRequestModel, err error) {
 	return f.friendRequest.FindToUserID(ctx, userID, pagination)
 }
 
-// 获取某人指定好友的信息 如果有好友不存在，也返回错误.
+// FindFriendsWithError retrieves specified friends' information for ownerUserID. Returns an error if any friend does not exist.
 func (f *friendDatabase) FindFriendsWithError(ctx context.Context, ownerUserID string, friendUserIDs []string) (friends []*relation.FriendModel, err error) {
 	friends, err = f.friend.FindFriends(ctx, ownerUserID, friendUserIDs)
 	if err != nil {
@@ -322,21 +378,12 @@ func (f *friendDatabase) FindFriendUserIDs(ctx context.Context, ownerUserID stri
 func (f *friendDatabase) FindBothFriendRequests(ctx context.Context, fromUserID, toUserID string) (friends []*relation.FriendRequestModel, err error) {
 	return f.friendRequest.FindBothFriendRequests(ctx, fromUserID, toUserID)
 }
-func (f *friendDatabase) UpdateFriendPinStatus(ctx context.Context, ownerUserID string, friendUserID string, isPinned bool) (err error) {
-	if err := f.friend.UpdatePinStatus(ctx, ownerUserID, friendUserID, isPinned); err != nil {
+func (f *friendDatabase) UpdateFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, val map[string]any) (err error) {
+	if len(val) == 0 {
+		return nil
+	}
+	if err := f.friend.UpdateFriends(ctx, ownerUserID, friendUserIDs, val); err != nil {
 		return err
 	}
-	return f.cache.DelFriend(ownerUserID, friendUserID).ExecDel(ctx)
-}
-func (f *friendDatabase) UpdateFriendRemark(ctx context.Context, ownerUserID string, friendUserID string, remark string) (err error) {
-	if err := f.friend.UpdateFriendRemark(ctx, ownerUserID, friendUserID, remark); err != nil {
-		return err
-	}
-	return f.cache.DelFriend(ownerUserID, friendUserID).ExecDel(ctx)
-}
-func (f *friendDatabase) UpdateFriendEx(ctx context.Context, ownerUserID string, friendUserID string, ex string) (err error) {
-	if err := f.friend.UpdateFriendEx(ctx, ownerUserID, friendUserID, ex); err != nil {
-		return err
-	}
-	return f.cache.DelFriend(ownerUserID, friendUserID).ExecDel(ctx)
+	return f.cache.DelFriends(ownerUserID, friendUserIDs).ExecDel(ctx)
 }

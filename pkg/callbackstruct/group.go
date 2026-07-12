@@ -15,9 +15,8 @@
 package callbackstruct
 
 import (
-	common "baoim/protocol/sdkws"
-
 	"BaoIM-Server/pkg/apistruct"
+	common "baoim/protocol/sdkws"
 )
 
 type CallbackCommand string

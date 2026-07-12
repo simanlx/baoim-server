@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# Copyright © 2024 OpenIM. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #
 # OpenIM Docker Deployment Script
 #
@@ -13,9 +27,9 @@
 # Usage:
 #   SERVER_IMAGE_VERSION=latest IMAGE_REGISTRY=myregistry ./this_script.sh
 
-set -o errexit
-set -o nounset
-set -o pipefail
+
+
+
 
 OPENIM_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 source "${OPENIM_ROOT}/scripts/lib/init.sh"
@@ -35,10 +49,10 @@ DOCKER_COMPOSE_COMMAND=
 # Check if docker-compose command is available
 openim::util::check_docker_and_compose_versions
 if command -v docker compose &> /dev/null; then
-    openim::log::info "docker compose command is available"
-    DOCKER_COMPOSE_COMMAND="docker compose"
+  openim::log::info "docker compose command is available"
+  DOCKER_COMPOSE_COMMAND="docker compose"
 else
-    DOCKER_COMPOSE_COMMAND="docker-compose"
+  DOCKER_COMPOSE_COMMAND="docker-compose"
 fi
 
 export SERVER_IMAGE_VERSION
@@ -53,19 +67,20 @@ ${DOCKER_COMPOSE_COMMAND} up -d
 
 # Function to check container status
 check_containers() {
-    if ! ${DOCKER_COMPOSE_COMMAND} ps | grep -q 'Up'; then
-        echo "Error: One or more docker containers failed to start."
-        ${DOCKER_COMPOSE_COMMAND} logs
-        return 1
-    fi
-    return 0
+  if ! ${DOCKER_COMPOSE_COMMAND} ps | grep -q 'Up'; then
+    echo "Error: One or more docker containers failed to start."
+    ${DOCKER_COMPOSE_COMMAND} logs openim-server
+    ${DOCKER_COMPOSE_COMMAND} logs openim-chat
+    return 1
+  fi
+  return 0
 }
 
 # Wait for a short period to allow containers to initialize
-sleep 30
-check_containers
+sleep 100
 
-${DOCKER_COMPOSE_COMMAND} logs openim-server
 ${DOCKER_COMPOSE_COMMAND} ps
+
+check_containers
 
 popd

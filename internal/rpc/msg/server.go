@@ -15,20 +15,18 @@
 package msg
 
 import (
-	"context"
+	"BaoIM-Server/pkg/rpccache"
 
-	"google.golang.org/grpc"
-
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/common/db/unrelation"
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/constant"
 	"baoim/protocol/conversation"
 	"baoim/protocol/msg"
 	"baoim/tools/discoveryregistry"
-
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/controller"
-	"BaoIM-Server/pkg/common/db/localcache"
-	"BaoIM-Server/pkg/common/db/unrelation"
-	"BaoIM-Server/pkg/rpcclient"
+	"google.golang.org/grpc"
 )
 
 type (
@@ -36,15 +34,14 @@ type (
 	msgServer               struct {
 		RegisterCenter         discoveryregistry.SvcDiscoveryRegistry
 		MsgDatabase            controller.CommonMsgDatabase
-		MsgGroupReadDatabase   controller.MsgGroupReadDatabase
-		Group                  *rpcclient.GroupRpcClient
-		User                   *rpcclient.UserRpcClient
 		Conversation           *rpcclient.ConversationRpcClient
-		friend                 *rpcclient.FriendRpcClient
-		GroupLocalCache        *localcache.GroupLocalCache
-		ConversationLocalCache *localcache.ConversationLocalCache
+		UserLocalCache         *rpccache.UserLocalCache
+		FriendLocalCache       *rpccache.FriendLocalCache
+		GroupLocalCache        *rpccache.GroupLocalCache
+		ConversationLocalCache *rpccache.ConversationLocalCache
 		Handlers               MessageInterceptorChain
 		notificationSender     *rpcclient.NotificationSender
+		config                 *config.GlobalConfig
 	}
 )
 
@@ -52,52 +49,50 @@ func (m *msgServer) addInterceptorHandler(interceptorFunc ...MessageInterceptorF
 	m.Handlers = append(m.Handlers, interceptorFunc...)
 }
 
-func (m *msgServer) execInterceptorHandler(ctx context.Context, req *msg.SendMsgReq) error {
-	for _, handler := range m.Handlers {
-		msgData, err := handler(ctx, req)
-		if err != nil {
-			return err
-		}
-		req.MsgData = msgData
-	}
-	return nil
-}
+//func (m *msgServer) execInterceptorHandler(ctx context.Context, config *config.GlobalConfig, req *msg.SendMsgReq) error {
+//	for _, handler := range m.Handlers {
+//		msgData, err := handler(ctx, config, req)
+//		if err != nil {
+//			return err
+//		}
+//		req.MsgData = msgData
+//	}
+//	return nil
+//}
 
-func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	rdb, err := cache.NewRedis()
+func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	rdb, err := cache.NewRedis(config)
 	if err != nil {
 		return err
 	}
-	mongo, err := unrelation.NewMongo()
+	mongo, err := unrelation.NewMongo(config)
 	if err != nil {
 		return err
 	}
 	if err := mongo.CreateMsgIndex(); err != nil {
 		return err
 	}
-	msgGroupRead, err := unrelation.NewMsgGroupRead(mongo.GetDatabase())
+	cacheModel := cache.NewMsgCacheModel(rdb, config)
+	msgDocModel := unrelation.NewMsgMongoDriver(mongo.GetDatabase(config.Mongo.Database))
+	conversationClient := rpcclient.NewConversationRpcClient(client, config)
+	userRpcClient := rpcclient.NewUserRpcClient(client, config)
+	groupRpcClient := rpcclient.NewGroupRpcClient(client, config)
+	friendRpcClient := rpcclient.NewFriendRpcClient(client, config)
+	msgDatabase, err := controller.NewCommonMsgDatabase(msgDocModel, cacheModel, config)
 	if err != nil {
 		return err
 	}
-	cacheModel := cache.NewMsgCacheModel(rdb)
-	msgDocModel := unrelation.NewMsgMongoDriver(mongo.GetDatabase())
-	conversationClient := rpcclient.NewConversationRpcClient(client)
-	userRpcClient := rpcclient.NewUserRpcClient(client)
-	groupRpcClient := rpcclient.NewGroupRpcClient(client)
-	friendRpcClient := rpcclient.NewFriendRpcClient(client)
-	msgDatabase := controller.NewCommonMsgDatabase(msgDocModel, cacheModel)
 	s := &msgServer{
 		Conversation:           &conversationClient,
-		User:                   &userRpcClient,
-		Group:                  &groupRpcClient,
 		MsgDatabase:            msgDatabase,
-		MsgGroupReadDatabase:   controller.NewMsgGroupReadDatabase(rdb, msgGroupRead),
 		RegisterCenter:         client,
-		GroupLocalCache:        localcache.NewGroupLocalCache(&groupRpcClient),
-		ConversationLocalCache: localcache.NewConversationLocalCache(&conversationClient),
-		friend:                 &friendRpcClient,
+		UserLocalCache:         rpccache.NewUserLocalCache(userRpcClient, rdb),
+		GroupLocalCache:        rpccache.NewGroupLocalCache(groupRpcClient, rdb),
+		ConversationLocalCache: rpccache.NewConversationLocalCache(conversationClient, rdb),
+		FriendLocalCache:       rpccache.NewFriendLocalCache(friendRpcClient, rdb),
+		config:                 config,
 	}
-	s.notificationSender = rpcclient.NewNotificationSender(rpcclient.WithLocalSendMsg(s.SendMsg))
+	s.notificationSender = rpcclient.NewNotificationSender(config, rpcclient.WithLocalSendMsg(s.SendMsg))
 	s.addInterceptorHandler(MessageHasReadEnabled)
 	msg.RegisterMsgServer(server, s)
 	return nil

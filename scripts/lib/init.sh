@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -o errexit
-set +o nounset
-set -o pipefail
 
 # Short-circuit if init.sh has already been sourced
 [[ $(type -t openim::init::loaded) == function ]] && return 0
@@ -25,7 +22,7 @@ unset CDPATH
 
 # Until all GOPATH references are removed from all build scripts as well,
 # explicitly disable module mode to avoid picking up user-set GO111MODULE preferences.
-# As individual scripts (like hack/update-vendor.sh) make use of go modules,
+# As individual scripts (like scripts/update-vendor.sh) make use of go modules,
 # they can explicitly set GO111MODULE=on
 export GO111MODULE=on
 
@@ -33,7 +30,7 @@ export GO111MODULE=on
 OPENIM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 
 OPENIM_OUTPUT_SUBPATH="${OPENIM_OUTPUT_SUBPATH:-_output}"
-OPENIM_OUTPUT=""${OPENIM_ROOT}"/${OPENIM_OUTPUT_SUBPATH}"
+OPENIM_OUTPUT="${OPENIM_ROOT}/${OPENIM_OUTPUT_SUBPATH}"
 
 OPENIM_OUTPUT_BINPATH="${OPENIM_OUTPUT}/bin/platforms"
 OPENIM_OUTPUT_BINTOOLPATH="${OPENIM_OUTPUT}/bin/tools"
@@ -50,8 +47,8 @@ OPENIM_RSYNC_COMPRESS="${KUBE_RSYNC_COMPRESS:-0}"
 export no_proxy="127.0.0.1,localhost${no_proxy:+,${no_proxy}}"
 
 # This is a symlink to binaries for "this platform", e.g. build tools.
-export THIS_PLATFORM_BIN=""${OPENIM_ROOT}"/_output/bin/platforms"
-export THIS_PLATFORM_BIN_TOOLS=""${OPENIM_ROOT}"/_output/bin/tools"
+export THIS_PLATFORM_BIN="${OPENIM_ROOT}/_output/bin/platforms"
+export THIS_PLATFORM_BIN_TOOLS="${OPENIM_ROOT}/_output/bin/tools"
 
 . $(dirname ${BASH_SOURCE})/color.sh
 . $(dirname ${BASH_SOURCE})/util.sh
@@ -62,7 +59,6 @@ openim::util::ensure-bash-version
 
 . $(dirname ${BASH_SOURCE})/version.sh
 . $(dirname ${BASH_SOURCE})/golang.sh
-. $(dirname ${BASH_SOURCE})/release.sh
 . $(dirname ${BASH_SOURCE})/chat.sh
 
 OPENIM_OUTPUT_HOSTBIN="${OPENIM_OUTPUT_BINPATH}/$(openim::util::host_platform)"

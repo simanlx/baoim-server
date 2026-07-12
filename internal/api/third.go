@@ -19,16 +19,12 @@ import (
 	"net/http"
 	"strconv"
 
-	config2 "BaoIM-Server/pkg/common/config"
-
-	"github.com/gin-gonic/gin"
-
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/third"
 	"baoim/tools/a2r"
 	"baoim/tools/errs"
 	"baoim/tools/mcontext"
-
-	"BaoIM-Server/pkg/rpcclient"
+	"github.com/gin-gonic/gin"
 )
 
 type ThirdApi rpcclient.Third
@@ -129,6 +125,19 @@ func (o *ThirdApi) SearchLogs(c *gin.Context) {
 	a2r.Call(third.ThirdClient.SearchLogs, o.Client, c)
 }
 
-func GetPrometheus(c *gin.Context) {
-	c.Redirect(http.StatusFound, config2.Config.Prometheus.GrafanaUrl)
+func (o *ThirdApi) GetPrometheus(c *gin.Context) {
+	c.Redirect(http.StatusFound, o.Config.Prometheus.GrafanaUrl)
 }
+
+// /////////rtc//////////
+//func (o *ThirdApi) AccessURL(c *gin.Context) {
+//	a2r.Call(third.ThirdClient.AccessURL, o.Client, c)
+//}
+
+//func (o *ThirdApi) GetSignalInvitationInfo(c *gin.Context) {
+//	a2r.Call(third.ThirdClient.GetSignalInvitationInfo, o.Client, c)
+//}
+//
+//func (o *ThirdApi) GetSignalInvitationInfoStartApp(c *gin.Context) {
+//	a2r.Call(third.ThirdClient.GetSignalInvitationInfoStartApp, o.Client, c)
+//}

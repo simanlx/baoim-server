@@ -15,46 +15,41 @@
 package msggateway
 
 import (
-	"baoim/tools/apiresp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
-
-	"github.com/go-playground/validator/v10"
-	"github.com/redis/go-redis/v9"
-	"golang.org/x/sync/errgroup"
-
-	"baoim/protocol/constant"
-	"baoim/protocol/msggateway"
-	"baoim/tools/discoveryregistry"
-	"baoim/tools/errs"
-	"baoim/tools/log"
-	"baoim/tools/utils"
 
 	"BaoIM-Server/pkg/authverify"
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/prommetrics"
 	"BaoIM-Server/pkg/rpcclient"
+	"baoim/protocol/constant"
+	"baoim/protocol/msggateway"
+	"baoim/tools/apiresp"
+	"baoim/tools/discoveryregistry"
+	"baoim/tools/errs"
+	"baoim/tools/log"
+	"baoim/tools/utils"
+	"github.com/go-playground/validator/v10"
+	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/errgroup"
 )
 
 type LongConnServer interface {
-	Run() error
+	Run(done chan error) error
 	wsHandler(w http.ResponseWriter, r *http.Request)
 	GetUserAllCons(userID string) ([]*Client, bool)
 	GetUserPlatformCons(userID string, platform int) ([]*Client, bool, bool)
 	Validate(s any) error
 	SetCacheHandler(cache cache.MsgModel)
-	SetDiscoveryRegistry(client discoveryregistry.SvcDiscoveryRegistry)
+	SetDiscoveryRegistry(client discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig)
 	KickUserConn(client *Client) error
 	UnRegister(c *Client)
 	SetKickHandlerInfo(i *kickHandler)
@@ -63,13 +58,15 @@ type LongConnServer interface {
 	MessageHandler
 }
 
-var bufferPool = sync.Pool{
-	New: func() any {
-		return make([]byte, 1024)
-	},
-}
+// bufferPool is unused
+// var bufferPool = sync.Pool{
+// 	New: func() any {
+// 		return make([]byte, 1024)
+// 	},
+// }
 
 type WsServer struct {
+	globalConfig      *config.GlobalConfig
 	port              int
 	wsMaxConnNum      int64
 	registerChan      chan *Client
@@ -84,21 +81,26 @@ type WsServer struct {
 	validate          *validator.Validate
 	cache             cache.MsgModel
 	userClient        *rpcclient.UserRpcClient
+	roomClient        *rpcclient.RoomRpcClient
 	disCov            discoveryregistry.SvcDiscoveryRegistry
 	Compressor
 	Encoder
 	MessageHandler
 }
+
 type kickHandler struct {
 	clientOK   bool
 	oldClients []*Client
 	newClient  *Client
 }
 
-func (ws *WsServer) SetDiscoveryRegistry(disCov discoveryregistry.SvcDiscoveryRegistry) {
-	ws.MessageHandler = NewGrpcHandler(ws.validate, disCov)
-	u := rpcclient.NewUserRpcClient(disCov)
+func (ws *WsServer) SetDiscoveryRegistry(disCov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) {
+	ws.MessageHandler = NewGrpcHandler(ws.validate, disCov, config)
+	u := rpcclient.NewUserRpcClient(disCov, config)
+	//增加 聊天室	rtc
+	r := rpcclient.NewRoomRpcClient(disCov, config)
 	ws.userClient = &u
+	ws.roomClient = &r
 	ws.disCov = disCov
 }
 
@@ -109,12 +111,20 @@ func (ws *WsServer) SetUserOnlineStatus(ctx context.Context, client *Client, sta
 	}
 	switch status {
 	case constant.Online:
-		err := CallbackUserOnline(ctx, client.UserID, client.PlatformID, client.IsBackground, client.ctx.GetConnID())
+		//上线时触发 停止定时清理房间
+		//_, _ = ws.roomClient.Client.OnlineUser(ctx, &pbroom.OnlineUserReq{
+		//	UserID: client.UserID,
+		//})
+		err := CallbackUserOnline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.IsBackground, client.ctx.GetConnID())
 		if err != nil {
 			log.ZWarn(ctx, "CallbackUserOnline err", err)
 		}
 	case constant.Offline:
-		err := CallbackUserOffline(ctx, client.UserID, client.PlatformID, client.ctx.GetConnID())
+		//离线触发清理房间
+
+		_ = ws.roomClient.CleanOfflineUser(ctx, client.UserID)
+
+		err := CallbackUserOffline(ctx, ws.globalConfig, client.UserID, client.PlatformID, client.ctx.GetConnID())
 		if err != nil {
 			log.ZWarn(ctx, "CallbackUserOffline err", err)
 		}
@@ -130,7 +140,9 @@ func (ws *WsServer) UnRegister(c *Client) {
 }
 
 func (ws *WsServer) Validate(s any) error {
-	//?question?
+	if s == nil {
+		return errs.Wrap(errors.New("input cannot be nil"))
+	}
 	return nil
 }
 
@@ -142,13 +154,14 @@ func (ws *WsServer) GetUserPlatformCons(userID string, platform int) ([]*Client,
 	return ws.clients.Get(userID, platform)
 }
 
-func NewWsServer(opts ...Option) (*WsServer, error) {
+func NewWsServer(globalConfig *config.GlobalConfig, opts ...Option) (*WsServer, error) {
 	var config configs
 	for _, o := range opts {
 		o(&config)
 	}
 	v := validator.New()
 	return &WsServer{
+		globalConfig:     globalConfig,
 		port:             config.port,
 		wsMaxConnNum:     config.maxConnNum,
 		writeBufferSize:  config.writeBufferSize,
@@ -168,23 +181,20 @@ func NewWsServer(opts ...Option) (*WsServer, error) {
 	}, nil
 }
 
-func (ws *WsServer) Run() error {
+func (ws *WsServer) Run(done chan error) error {
 	var (
-		client *Client
-		wg     errgroup.Group
-
-		sigs = make(chan os.Signal, 1)
-		done = make(chan struct{}, 1)
+		client       *Client
+		netErr       error
+		shutdownDone = make(chan struct{}, 1)
 	)
 
 	server := http.Server{Addr: ":" + utils.IntToString(ws.port), Handler: nil}
 
-	wg.Go(func() error {
+	go func() {
 		for {
 			select {
-			case <-done:
-				return nil
-
+			case <-shutdownDone:
+				return
 			case client = <-ws.registerChan:
 				ws.registerClient(client)
 			case client = <-ws.unregisterChan:
@@ -193,40 +203,39 @@ func (ws *WsServer) Run() error {
 				ws.multiTerminalLoginChecker(onlineInfo.clientOK, onlineInfo.oldClients, onlineInfo.newClient)
 			}
 		}
-	})
-
-	wg.Go(func() error {
-		http.HandleFunc("/", ws.wsHandler)
-		return server.ListenAndServe()
-	})
-
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	<-sigs
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-
-		// graceful exit operation for server
-		_ = server.Shutdown(ctx)
-		_ = wg.Wait()
-		close(done)
 	}()
-
+	netDone := make(chan struct{}, 1)
+	go func() {
+		http.HandleFunc("/", ws.wsHandler)
+		err := server.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			netErr = errs.Wrap(err, "ws start err", server.Addr)
+			close(netDone)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	var err error
 	select {
-	case <-done:
-		return nil
-
-	case <-time.After(15 * time.Second):
-		return utils.Wrap1(errors.New("timeout exit"))
+	case err = <-done:
+		sErr := server.Shutdown(ctx)
+		if sErr != nil {
+			return errs.Wrap(sErr, "shutdown err")
+		}
+		close(shutdownDone)
+		if err != nil {
+			return err
+		}
+	case <-netDone:
 	}
+	return netErr
 
 }
 
 var concurrentRequest = 3
 
 func (ws *WsServer) sendUserOnlineInfoToOtherNode(ctx context.Context, client *Client) error {
-	conns, err := ws.disCov.GetConns(ctx, config.Config.RpcRegisterName.OpenImMessageGatewayName)
+	conns, err := ws.disCov.GetConns(ctx, ws.globalConfig.RpcRegisterName.OpenImMessageGatewayName)
 	if err != nil {
 		return err
 	}
@@ -269,6 +278,8 @@ func (ws *WsServer) registerClient(client *Client) {
 		clientOK   bool
 		oldClients []*Client
 	)
+
+	println("注册客户端")
 	oldClients, userOK, clientOK = ws.clients.Get(client.UserID, client.PlatformID)
 	if !userOK {
 		ws.clients.Set(client.UserID, client)
@@ -281,7 +292,7 @@ func (ws *WsServer) registerClient(client *Client) {
 		log.ZDebug(client.ctx, "user exist", "userID", client.UserID, "platformID", client.PlatformID)
 		if clientOK {
 			ws.clients.Set(client.UserID, client)
-			// 已经有同平台的连接存在
+			// There is already a connection to the platform
 			log.ZInfo(client.ctx, "repeat login", "userID", client.UserID, "platformID", client.PlatformID, "old remote addr", getRemoteAdders(oldClients))
 			ws.onlineUserConnNum.Add(1)
 		} else {
@@ -291,7 +302,7 @@ func (ws *WsServer) registerClient(client *Client) {
 	}
 
 	wg := sync.WaitGroup{}
-	if config.Config.Envs.Discovery == "zookeeper" {
+	if ws.globalConfig.Envs.Discovery == "zookeeper" {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -334,7 +345,7 @@ func (ws *WsServer) KickUserConn(client *Client) error {
 }
 
 func (ws *WsServer) multiTerminalLoginChecker(clientOK bool, oldClients []*Client, newClient *Client) {
-	switch config.Config.MultiLoginPolicy {
+	switch ws.globalConfig.MultiLoginPolicy {
 	case constant.DefalutNotKick:
 	case constant.PCAndOther:
 		if constant.PlatformIDToClass(newClient.PlatformID) == constant.TerminalPC {
@@ -408,6 +419,8 @@ func (ws *WsServer) multiTerminalLoginChecker(clientOK bool, oldClients []*Clien
 }
 
 func (ws *WsServer) unregisterClient(client *Client) {
+	println("移除客户端")
+
 	defer ws.clientPool.Put(client)
 	isDeleteUser := ws.clients.delete(client.UserID, client.ctx.GetRemoteAddr())
 	if isDeleteUser {
@@ -446,7 +459,7 @@ func (ws *WsServer) ParseWSArgs(r *http.Request) (args *WSArgs, err error) {
 		return nil, errs.ErrConnArgsErr.Wrap("platformID is not int")
 	}
 	v.PlatformID = platformID
-	if err = authverify.WsVerifyToken(v.Token, v.UserID, platformID); err != nil {
+	if err = authverify.WsVerifyToken(v.Token, v.UserID, ws.globalConfig.Secret, platformID); err != nil {
 		return nil, err
 	}
 	if query.Get(Compression) == GzipCompressionProtocol {
@@ -517,10 +530,6 @@ func (ws *WsServer) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	client := ws.clientPool.Get().(*Client)
 	client.ResetClient(connContext, wsLongConn, connContext.GetBackground(), args.Compression, ws, args.Token)
-	err := client.ServerConfigMessage(connContext)
-	if err != nil {
-		log.ZWarn(connContext, "ServerConfigMessage", err)
-	}
 	ws.registerChan <- client
 	go client.readMessage()
 }

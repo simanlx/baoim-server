@@ -18,15 +18,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/redis/go-redis/v9"
 	"time"
-
-	"baoim/tools/mw/specialerror"
-
-	"github.com/dtm-labs/rockscache"
 
 	"baoim/tools/errs"
 	"baoim/tools/log"
+	"baoim/tools/mw/specialerror"
 	"baoim/tools/utils"
+	"github.com/dtm-labs/rockscache"
 )
 
 const (
@@ -44,6 +44,9 @@ type metaCache interface {
 	AddKeys(keys ...string)
 	ClearKeys()
 	GetPreDelKeys() []string
+	SetTopic(topic string)
+	SetRawRedisClient(cli redis.UniversalClient)
+	Copy() metaCache
 }
 
 func NewMetaCacheRedis(rcClient *rockscache.Client, keys ...string) metaCache {
@@ -51,18 +54,45 @@ func NewMetaCacheRedis(rcClient *rockscache.Client, keys ...string) metaCache {
 }
 
 type metaCacheRedis struct {
+	topic         string
 	rcClient      *rockscache.Client
 	keys          []string
 	maxRetryTimes int
 	retryInterval time.Duration
+	redisClient   redis.UniversalClient
+}
+
+func (m *metaCacheRedis) Copy() metaCache {
+	var keys []string
+	if len(m.keys) > 0 {
+		keys = make([]string, 0, len(m.keys)*2)
+		keys = append(keys, m.keys...)
+	}
+	return &metaCacheRedis{
+		topic:         m.topic,
+		rcClient:      m.rcClient,
+		keys:          keys,
+		maxRetryTimes: m.maxRetryTimes,
+		retryInterval: m.retryInterval,
+		redisClient:   redisClient,
+	}
+}
+
+func (m *metaCacheRedis) SetTopic(topic string) {
+	m.topic = topic
+}
+
+func (m *metaCacheRedis) SetRawRedisClient(cli redis.UniversalClient) {
+	m.redisClient = cli
 }
 
 func (m *metaCacheRedis) ExecDel(ctx context.Context, distinct ...bool) error {
 	if len(distinct) > 0 && distinct[0] {
 		m.keys = utils.Distinct(m.keys)
 	}
+
 	if len(m.keys) > 0 {
-		log.ZDebug(ctx, "delete cache", "keys", m.keys)
+		log.ZDebug(ctx, "delete cache", "topic", m.topic, "keys", m.keys)
 		for _, key := range m.keys {
 			for i := 0; i < m.maxRetryTimes; i++ {
 				if err := m.rcClient.TagAsDeleted(key); err != nil {
@@ -72,31 +102,18 @@ func (m *metaCacheRedis) ExecDel(ctx context.Context, distinct ...bool) error {
 				}
 				break
 			}
-
-			//retryTimes := 0
-			//for {
-			//	m.rcClient.TagAsDeleted()
-			//	if err := m.rcClient.TagAsDeletedBatch2(ctx, []string{key}); err != nil {
-			//		if retryTimes >= m.maxRetryTimes {
-			//			err = errs.ErrInternalServer.Wrap(
-			//				fmt.Sprintf(
-			//					"delete cache error: %v, keys: %v, retry times %d, please check redis server",
-			//					err,
-			//					key,
-			//					retryTimes,
-			//				),
-			//			)
-			//			log.ZWarn(ctx, "delete cache failed, please handle keys", err, "keys", key)
-			//			return err
-			//		}
-			//		retryTimes++
-			//	} else {
-			//		break
-			//	}
-			//}
+		}
+		if pk := getPublishKey(m.topic, m.keys); len(pk) > 0 {
+			data, err := json.Marshal(pk)
+			if err != nil {
+				log.ZError(ctx, "keys json marshal failed", err, "topic", m.topic, "keys", pk)
+			} else {
+				if err := m.redisClient.Publish(ctx, m.topic, string(data)).Err(); err != nil {
+					log.ZError(ctx, "redis publish cache delete error", err, "topic", m.topic, "keys", pk)
+				}
+			}
 		}
 	}
-
 	return nil
 }
 
@@ -134,14 +151,14 @@ func getCache[T any](ctx context.Context, rcClient *rockscache.Client, key strin
 		}
 		bs, err := json.Marshal(t)
 		if err != nil {
-			return "", utils.Wrap(err, "")
+			return "", errs.Wrap(err, "marshal failed")
 		}
 		write = true
 
 		return string(bs), nil
 	})
 	if err != nil {
-		return t, err
+		return t, errs.Wrap(err)
 	}
 	if write {
 		return t, nil
@@ -151,9 +168,8 @@ func getCache[T any](ctx context.Context, rcClient *rockscache.Client, key strin
 	}
 	err = json.Unmarshal([]byte(v), &t)
 	if err != nil {
-		log.ZError(ctx, "cache json.Unmarshal failed", err, "key", key, "value", v, "expire", expire)
-
-		return t, utils.Wrap(err, "")
+		errInfo := fmt.Sprintf("cache json.Unmarshal failed, key:%s, value:%s, expire:%s", key, v, expire)
+		return t, errs.Wrap(err, errInfo)
 	}
 
 	return t, nil
@@ -217,7 +233,7 @@ func batchGetCache2[T any, K comparable](
 			if errs.ErrRecordNotFound.Is(specialerror.ErrCode(errs.Unwrap(err))) {
 				continue
 			}
-			return nil, err
+			return nil, errs.Wrap(err)
 		}
 		res = append(res, val)
 	}

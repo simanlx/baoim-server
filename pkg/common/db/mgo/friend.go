@@ -17,15 +17,12 @@ package mgo
 import (
 	"context"
 
-	"baoim/tools/errs"
+	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
-	"go.mongodb.org/mongo-driver/mongo/options"
-
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // FriendMgo implements FriendModelInterface using MongoDB as the storage backend.
@@ -55,12 +52,31 @@ func (f *FriendMgo) Create(ctx context.Context, friends []*relation.FriendModel)
 }
 
 // Delete removes specified friends of the owner user.
+//
+//	func (f *FriendMgo) Delete(ctx context.Context, ownerUserID string, friendUserIDs []string) error {
+//		filter := bson.M{
+//			"owner_user_id":  ownerUserID,
+//			"friend_user_id": bson.M{"$in": friendUserIDs},
+//		}
+//		return mgoutil.DeleteOne(ctx, f.coll, filter)
+//	}
 func (f *FriendMgo) Delete(ctx context.Context, ownerUserID string, friendUserIDs []string) error {
-	filter := bson.M{
+	// 1. 硬删除：我 → 2,3,4
+	if err := mgoutil.DeleteMany(ctx, f.coll, bson.M{
 		"owner_user_id":  ownerUserID,
 		"friend_user_id": bson.M{"$in": friendUserIDs},
+	}); err != nil {
+		return err
 	}
-	return mgoutil.DeleteOne(ctx, f.coll, filter)
+
+	// 2. 软更新：2,3,4 → 我
+	_, err := mgoutil.UpdateMany(ctx, f.coll, bson.M{
+		"owner_user_id":  bson.M{"$in": friendUserIDs},
+		"friend_user_id": ownerUserID,
+	}, bson.M{
+		"$set": bson.M{"del": true},
+	})
+	return err
 }
 
 // UpdateByMap updates specific fields of a friend document using a map.
@@ -145,49 +161,22 @@ func (f *FriendMgo) FindFriendUserIDs(ctx context.Context, ownerUserID string) (
 	return mgoutil.Find[string](ctx, f.coll, filter, options.Find().SetProjection(bson.M{"_id": 0, "friend_user_id": 1}))
 }
 
-// UpdatePinStatus update friend's pin status
-func (f *FriendMgo) UpdatePinStatus(ctx context.Context, ownerUserID string, friendUserID string, isPinned bool) (err error) {
-
-	filter := bson.M{"owner_user_id": ownerUserID, "friend_user_id": friendUserID}
-	// Create an update operation to set the "is_pinned" field to isPinned for all documents.
-	update := bson.M{"$set": bson.M{"is_pinned": isPinned}}
-
-	// Perform the update operation for all documents in the collection.
-	_, err = f.coll.UpdateMany(ctx, filter, update)
-
-	if err != nil {
-		return errs.Wrap(err, "update pin error")
+func (f *FriendMgo) UpdateFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, val map[string]any) error {
+	// Ensure there are IDs to update
+	if len(friendUserIDs) == 0 {
+		return nil // Or return an error if you expect there to always be IDs
 	}
 
-	return nil
-}
-func (f *FriendMgo) UpdateFriendRemark(ctx context.Context, ownerUserID string, friendUserID string, remark string) (err error) {
-
-	filter := bson.M{"owner_user_id": ownerUserID, "friend_user_id": friendUserID}
-	// Create an update operation to set the "is_pinned" field to isPinned for all documents.
-	update := bson.M{"$set": bson.M{"remark": remark}}
-
-	// Perform the update operation for all documents in the collection.
-	_, err = f.coll.UpdateMany(ctx, filter, update)
-
-	if err != nil {
-		return errs.Wrap(err, "update remark error")
+	// Create a filter to match documents with the specified ownerUserID and any of the friendUserIDs
+	filter := bson.M{
+		"owner_user_id":  ownerUserID,
+		"friend_user_id": bson.M{"$in": friendUserIDs},
 	}
 
-	return nil
-}
-func (f *FriendMgo) UpdateFriendEx(ctx context.Context, ownerUserID string, friendUserID string, ex string) (err error) {
+	// Create an update document
+	update := bson.M{"$set": val}
 
-	filter := bson.M{"owner_user_id": ownerUserID, "friend_user_id": friendUserID}
-	// Create an update operation to set the "is_pinned" field to isPinned for all documents.
-	update := bson.M{"$set": bson.M{"ex": ex}}
-
-	// Perform the update operation for all documents in the collection.
-	_, err = f.coll.UpdateMany(ctx, filter, update)
-
-	if err != nil {
-		return errs.Wrap(err, "update ex error")
-	}
-
-	return nil
+	// Perform the update operation for all matching documents
+	_, err := mgoutil.UpdateMany(ctx, f.coll, filter, update)
+	return err
 }

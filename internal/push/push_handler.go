@@ -17,17 +17,15 @@ package push
 import (
 	"context"
 
-	"github.com/IBM/sarama"
-	"google.golang.org/protobuf/proto"
-
+	"BaoIM-Server/pkg/common/config"
+	kfk "BaoIM-Server/pkg/common/kafka"
 	"baoim/protocol/constant"
 	pbchat "baoim/protocol/msg"
 	pbpush "baoim/protocol/push"
 	"baoim/tools/log"
 	"baoim/tools/utils"
-
-	"BaoIM-Server/pkg/common/config"
-	kfk "BaoIM-Server/pkg/common/kafka"
+	"github.com/IBM/sarama"
+	"google.golang.org/protobuf/proto"
 )
 
 type ConsumerHandler struct {
@@ -35,15 +33,33 @@ type ConsumerHandler struct {
 	pusher            *Pusher
 }
 
-func NewConsumerHandler(pusher *Pusher) *ConsumerHandler {
+func NewConsumerHandler(config *config.GlobalConfig, pusher *Pusher) (*ConsumerHandler, error) {
 	var consumerHandler ConsumerHandler
 	consumerHandler.pusher = pusher
-	consumerHandler.pushConsumerGroup = kfk.NewMConsumerGroup(&kfk.MConsumerGroupConfig{
+	var err error
+	var tlsConfig *kfk.TLSConfig
+	if config.Kafka.TLS != nil {
+		tlsConfig = &kfk.TLSConfig{
+			CACrt:              config.Kafka.TLS.CACrt,
+			ClientCrt:          config.Kafka.TLS.ClientCrt,
+			ClientKey:          config.Kafka.TLS.ClientKey,
+			ClientKeyPwd:       config.Kafka.TLS.ClientKeyPwd,
+			InsecureSkipVerify: false,
+		}
+	}
+	consumerHandler.pushConsumerGroup, err = kfk.NewMConsumerGroup(&kfk.MConsumerGroupConfig{
 		KafkaVersion:   sarama.V2_0_0_0,
-		OffsetsInitial: sarama.OffsetNewest, IsReturnErr: false,
-	}, []string{config.Config.Kafka.MsgToPush.Topic}, config.Config.Kafka.Addr,
-		config.Config.Kafka.ConsumerGroupID.MsgToPush)
-	return &consumerHandler
+		OffsetsInitial: sarama.OffsetNewest,
+		IsReturnErr:    false,
+		UserName:       config.Kafka.Username,
+		Password:       config.Kafka.Password,
+	}, []string{config.Kafka.MsgToPush.Topic}, config.Kafka.Addr,
+		config.Kafka.ConsumerGroupID.MsgToPush,
+		tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	return &consumerHandler, nil
 }
 
 func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) {
@@ -66,6 +82,8 @@ func (c *ConsumerHandler) handleMs2PsChat(ctx context.Context, msg []byte) {
 	switch msgFromMQ.MsgData.SessionType {
 	case constant.SuperGroupChatType:
 		err = c.pusher.Push2SuperGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
+	case constant.GroupChatType:
+		err = c.pusher.Push2RoomGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
 	default:
 		var pushUserIDList []string
 		isSenderSync := utils.GetSwitchFromOptions(pbData.MsgData.Options, constant.IsSenderSync)

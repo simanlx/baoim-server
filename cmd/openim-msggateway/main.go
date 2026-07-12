@@ -16,6 +16,7 @@ package main
 
 import (
 	"BaoIM-Server/pkg/common/cmd"
+	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
@@ -23,8 +24,7 @@ func main() {
 	msgGatewayCmd.AddWsPortFlag()
 	msgGatewayCmd.AddPortFlag()
 	msgGatewayCmd.AddPrometheusPortFlag()
-
 	if err := msgGatewayCmd.Exec(); err != nil {
-		panic(err.Error())
+		util.ExitWithError(err)
 	}
 }

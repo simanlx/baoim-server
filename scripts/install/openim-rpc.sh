@@ -38,10 +38,6 @@
 # Note: Before executing this script, ensure that the necessary permissions are granted and relevant environmental variables are set.
 #
 
-set -o errexit
-set +o nounset
-set -o pipefail
-
 OPENIM_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd -P)
 [[ -z ${COMMON_SOURCED} ]] && source "${OPENIM_ROOT}"/scripts/install/common.sh
 
@@ -54,17 +50,26 @@ openim::rpc::service_name() {
     openim-rpc-friend
     openim-rpc-msg
     openim-rpc-group
+    openim-rpc-room
     openim-rpc-auth
     openim-rpc-conversation
     openim-rpc-third
-    openim-rpc-encryption
-    # openim-rpc-extend-msg
   )
   echo "${targets[@]}"
 }
 IFS=" " read -ra OPENIM_RPC_SERVICE_TARGETS <<< "$(openim::rpc::service_name)"
 readonly OPENIM_RPC_SERVICE_TARGETS
 readonly OPENIM_RPC_SERVICE_LISTARIES=("${OPENIM_RPC_SERVICE_TARGETS[@]##*/}")
+
+
+OPENIM_ALL_RPC_FULL_PATH=()
+for target in openim::rpc::service_name; do
+  OPENIM_ALL_RPC_FULL_PATH+=("${OPENIM_OUTPUT_HOSTBIN}/${target}")
+done
+readonly OPENIM_ALL_RPC_FULL_PATH
+
+
+
 
 # Make sure the environment is only called via common to avoid too much nesting
 openim::rpc::service_port() {
@@ -74,11 +79,11 @@ openim::rpc::service_port() {
     ${OPENIM_MESSAGE_PORT}         # Message service 10130
     # ${OPENIM_MESSAGE_GATEWAY_PORT} # Message gateway 10140
     ${OPENIM_GROUP_PORT}           # Group service 10150
+    ${OPENIM_ROOM_PORT}           # Group service 11110
     ${OPENIM_AUTH_PORT}            # Authorization service 10160
     # ${OPENIM_PUSH_PORT}            # Push service 10170
     ${OPENIM_CONVERSATION_PORT}    # Conversation service 10180
     ${OPENIM_THIRD_PORT}           # Third-party service 10190
-    ${OPENIM_ENCRYPTION_PORT}      # Encryption service 10200
   )
   echo "${targets[@]}"
 }
@@ -93,10 +98,10 @@ openim::rpc::prometheus_port() {
     ${FRIEND_PROM_PORT}             # Prometheus port for friend service
     ${MESSAGE_PROM_PORT}            # Prometheus port for message service
     ${GROUP_PROM_PORT}              # Prometheus port for group service
+    ${ROOM_PROM_PORT}              # Prometheus port for ROOM service
     ${AUTH_PROM_PORT}               # Prometheus port for authentication service
     ${CONVERSATION_PROM_PORT}       # Prometheus port for conversation service
     ${THIRD_PROM_PORT}              # Prometheus port for third-party integrations service
-    ${ENCRYPTION_PROM_PORT}         # Prometheus port for encryption service
   )
   # Print the list of ports
   echo "${targets[@]}"
@@ -106,6 +111,8 @@ readonly OPENIM_RPC_PROM_PORT_TARGETS
 readonly OPENIM_RPC_PROM_PORT_LISTARIES=("${OPENIM_RPC_PROM_PORT_TARGETS[@]##*/}")
 
 function openim::rpc::start() {
+    rm -rf "$TMP_LOG_FILE"
+
     echo "OPENIM_RPC_SERVICE_LISTARIES: ${OPENIM_RPC_SERVICE_LISTARIES[@]}"
     echo "OPENIM_RPC_PROM_PORT_LISTARIES: ${OPENIM_RPC_PROM_PORT_LISTARIES[@]}"
     echo "OPENIM_RPC_PORT_LISTARIES: ${OPENIM_RPC_PORT_LISTARIES[@]}"
@@ -123,12 +130,11 @@ function openim::rpc::start() {
     printf "+------------------------+-------+-----------------+\n"
     done
 
+
     # start all rpc services
     for ((i = 0; i < ${#OPENIM_RPC_SERVICE_LISTARIES[*]}; i++)); do
-        # openim::util::stop_services_with_name ${OPENIM_RPC_SERVICE_LISTARIES
-        openim::util::stop_services_on_ports ${OPENIM_RPC_PORT_LISTARIES[$i]}
-        openim::log::info "OpenIM ${OPENIM_RPC_SERVICE_LISTARIES[$i]} config path: ${OPENIM_RPC_CONFIG}"
 
+        openim::log::info "OpenIM ${OPENIM_RPC_SERVICE_LISTARIES[$i]} config path: ${OPENIM_RPC_CONFIG}"
         # Get the service and Prometheus ports.
         OPENIM_RPC_SERVICE_PORTS=( $(openim::util::list-to-string ${OPENIM_RPC_PORT_LISTARIES[$i]}) )
         read -a OPENIM_RPC_SERVICE_PORTS_ARRAY <<< ${OPENIM_RPC_SERVICE_PORTS}
@@ -138,15 +144,17 @@ function openim::rpc::start() {
 
         for ((j = 0; j < ${#OPENIM_RPC_SERVICE_PORTS_ARRAY[@]}; j++)); do
             openim::log::info "Starting ${OPENIM_RPC_SERVICE_LISTARIES[$i]} service, port: ${OPENIM_RPC_SERVICE_PORTS[j]}, prometheus port: ${OPENIM_RPC_PROM_PORTS[j]}, binary root: ${OPENIM_OUTPUT_HOSTBIN}/${OPENIM_RPC_SERVICE_LISTARIES[$i]}"
-            openim::rpc::start_service "${OPENIM_RPC_SERVICE_LISTARIES[$i]}" "${OPENIM_RPC_SERVICE_PORTS[j]}" "${OPENIM_RPC_PROM_PORTS[j]}"
+            result=$(openim::rpc::start_service "${OPENIM_RPC_SERVICE_LISTARIES[$i]}" "${OPENIM_RPC_SERVICE_PORTS[j]}" "${OPENIM_RPC_PROM_PORTS[j]}")
+            if [[ $? -ne 0 ]]; then
+                openim::log::error "start ${SERVER_NAME} failed"
+            else
+                openim::log::info "$result"
+            fi
         done
     done
 
-    sleep 8
 
-    openim::util::check_ports ${OPENIM_RPC_PORT_TARGETS[@]}
-    # openim::util::check_ports ${OPENIM_RPC_PROM_PORT_TARGETS[@]}
-
+    return 0
 }
 
 function openim::rpc::start_service() {
@@ -160,7 +168,9 @@ function openim::rpc::start_service() {
     printf "Specifying prometheus port: %s\n" "${prometheus_port}"
     cmd="${cmd} --prometheus_port ${prometheus_port}"
   fi
-  nohup ${cmd} >> "${LOG_FILE}" 2>&1 &
+  #nohup ${cmd} >> "${LOG_FILE}" 2> >(tee -a "${STDERR_LOG_FILE}" "$TMP_LOG_FILE" >&2) &
+  nohup ${cmd} >> "${LOG_FILE}" 2> >(tee -a  "$TMP_LOG_FILE" | while read line; do echo -e "\e[31m${line}\e[0m"; done >&2) >/dev/null &
+  return 0
 }
 
 ###################################### Linux Systemd ######################################
@@ -220,7 +230,7 @@ function openim::rpc::uninstall() {
         openim::common::sudo "rm -f ${OPENIM_CONFIG_DIR}/${service}.yaml"
         openim::common::sudo "rm -f ${SYSTEM_FILE_PATHS[$service]}"
     done
-    set -o errexit
+
     openim::log::info "uninstall openim-rpc successfully"
 }
 

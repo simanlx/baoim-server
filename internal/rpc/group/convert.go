@@ -15,9 +15,8 @@
 package group
 
 import (
-	"baoim/protocol/sdkws"
-
 	"BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/protocol/sdkws"
 )
 
 func (s *groupServer) groupDB2PB(group *relation.GroupModel, ownerUserID string, memberCount uint32) *sdkws.GroupInfo {

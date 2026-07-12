@@ -40,11 +40,16 @@ type ConversationModel struct {
 	IsMsgDestruct         bool      `bson:"is_msg_destruct"`
 	MsgDestructTime       int64     `bson:"msg_destruct_time"`
 	LatestMsgDestructTime time.Time `bson:"latest_msg_destruct_time"`
+	//ExpireTime            time.Time `bson:"expire_time,omitempty"` // 可选字段，需要过期时才设置
 }
 
 type ConversationModelInterface interface {
 	Create(ctx context.Context, conversations []*ConversationModel) (err error)
 	Delete(ctx context.Context, groupIDs []string) (err error)
+	// Expire 定时删除
+	//Expire(ctx context.Context, groupID string, expireTime time.Time) (err error)
+	DeleteOne(ctx context.Context, ownerUserID string, groupID string) (err error)
+
 	UpdateByMap(ctx context.Context, userIDs []string, conversationID string, args map[string]any) (rows int64, err error)
 	Update(ctx context.Context, conversation *ConversationModel) (err error)
 	Find(ctx context.Context, ownerUserID string, conversationIDs []string) (conversations []*ConversationModel, err error)
@@ -53,7 +58,7 @@ type ConversationModelInterface interface {
 	Take(ctx context.Context, userID, conversationID string) (conversation *ConversationModel, err error)
 	FindConversationID(ctx context.Context, userID string, conversationIDs []string) (existConversationID []string, err error)
 	FindUserIDAllConversations(ctx context.Context, userID string) (conversations []*ConversationModel, err error)
-	FindRecvMsgNotNotifyUserIDs(ctx context.Context, groupID string) ([]string, error)
+	FindRecvMsgUserIDs(ctx context.Context, conversationID string, recvOpts []int) ([]string, error)
 	GetUserRecvMsgOpt(ctx context.Context, ownerUserID, conversationID string) (opt int, err error)
 	GetAllConversationIDs(ctx context.Context) ([]string, error)
 	GetAllConversationIDsNumber(ctx context.Context) (int64, error)

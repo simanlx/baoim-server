@@ -18,10 +18,9 @@ import (
 	"context"
 	"time"
 
-	"baoim/tools/mcontext"
-
 	pbgroup "baoim/protocol/group"
 	"baoim/protocol/sdkws"
+	"baoim/tools/mcontext"
 )
 
 func UpdateGroupInfoMap(ctx context.Context, group *sdkws.GroupInfoForSet) map[string]any {

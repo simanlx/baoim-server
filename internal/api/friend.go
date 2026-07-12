@@ -15,11 +15,9 @@
 package api
 
 import (
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/friend"
 	"baoim/tools/a2r"
-
-	"BaoIM-Server/pkg/rpcclient"
-
 	"github.com/gin-gonic/gin"
 )
 

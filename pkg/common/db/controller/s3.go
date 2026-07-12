@@ -19,12 +19,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/redis/go-redis/v9"
-
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/db/s3"
 	"BaoIM-Server/pkg/common/db/s3/cont"
 	"BaoIM-Server/pkg/common/db/table/relation"
+	"github.com/redis/go-redis/v9"
 )
 
 type S3Database interface {

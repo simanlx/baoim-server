@@ -22,7 +22,6 @@ import (
 	"unicode/utf8"
 
 	"BaoIM-Server/pkg/authverify"
-
 	"baoim/protocol/third"
 	"baoim/tools/errs"
 	"baoim/tools/mcontext"
@@ -42,7 +41,7 @@ func toPbMapArray(m map[string][]string) []*third.KeyValues {
 	return res
 }
 
-func checkUploadName(ctx context.Context, name string) error {
+func (t *thirdServer) checkUploadName(ctx context.Context, name string) error {
 	if name == "" {
 		return errs.ErrArgs.Wrap("name is empty")
 	}
@@ -56,7 +55,7 @@ func checkUploadName(ctx context.Context, name string) error {
 	if opUserID == "" {
 		return errs.ErrNoPermission.Wrap("opUserID is empty")
 	}
-	if !authverify.IsManagerUserID(opUserID) {
+	if !authverify.IsManagerUserID(opUserID, t.config) {
 		if !strings.HasPrefix(name, opUserID+"/") {
 			return errs.ErrNoPermission.Wrap(fmt.Sprintf("name must start with `%s/`", opUserID))
 		}
@@ -79,4 +78,8 @@ func checkValidObjectName(objectName string) error {
 		return errors.New("object name cannot be empty")
 	}
 	return checkValidObjectNamePrefix(objectName)
+}
+
+func (t *thirdServer) IsManagerUserID(opUserID string) bool {
+	return authverify.IsManagerUserID(opUserID, t.config)
 }

@@ -15,63 +15,109 @@
 package controller
 
 import (
+	"baoim/protocol/sdkws"
 	"context"
 	"time"
 
-	"baoim/tools/pagination"
-	"github.com/dtm-labs/rockscache"
-
-	"baoim/protocol/constant"
-	"baoim/tools/tx"
-	"baoim/tools/utils"
-	"github.com/redis/go-redis/v9"
-
 	"BaoIM-Server/pkg/common/db/cache"
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/protocol/constant"
+	"baoim/tools/pagination"
+	"baoim/tools/tx"
+	"baoim/tools/utils"
+	"github.com/dtm-labs/rockscache"
+	"github.com/redis/go-redis/v9"
 )
 
 type GroupDatabase interface {
-	// Group
+	// CreateGroup creates new groups along with their members.
 	CreateGroup(ctx context.Context, groups []*relationtb.GroupModel, groupMembers []*relationtb.GroupMemberModel) error
-	TakeGroup(ctx context.Context, groupID string) (group *relationtb.GroupModel, err error)
-	FindGroup(ctx context.Context, groupIDs []string) (groups []*relationtb.GroupModel, err error)
-	SearchGroup(ctx context.Context, keyword string, pagination pagination.Pagination) (int64, []*relationtb.GroupModel, error)
-	UpdateGroup(ctx context.Context, groupID string, data map[string]any) error
-	DismissGroup(ctx context.Context, groupID string, deleteMember bool) error // 解散群，并删除群成员
 
+	//把聊天室 缓存到房间列表
+	AddRoomList(ctx context.Context, room *sdkws.RoomInfo) error
+
+	//加入房间更新
+	JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error)
+
+	//退出聊天室
+	QuitRoomList(ctx context.Context, groupID string, uid string, img string) error
+
+	//踢出聊天室
+	KickRoomList(ctx context.Context, roomID string, uid string, img string) error
+	// 解散聊天室
+	DismissRoom(ctx context.Context, roomID string) error
+
+	// TakeGroup retrieves a single group by its ID.
+	TakeGroup(ctx context.Context, groupID string) (group *relationtb.GroupModel, err error)
+	// FindGroup retrieves multiple groups by their IDs.
+	FindGroup(ctx context.Context, groupIDs []string) (groups []*relationtb.GroupModel, err error)
+	// SearchGroup searches for groups based on a keyword and pagination settings, returns total count and groups.
+	SearchGroup(ctx context.Context, keyword string, pagination pagination.Pagination) (int64, []*relationtb.GroupModel, error)
+	// UpdateGroup updates the properties of a group identified by its ID.
+	UpdateGroup(ctx context.Context, groupID string, data map[string]any) error
+	// DismissGroup disbands a group and optionally removes its members based on the deleteMember flag.
+	DismissGroup(ctx context.Context, groupID string, deleteMember bool) error
+
+	// TakeGroupMember retrieves a specific group member by group ID and user ID.
 	TakeGroupMember(ctx context.Context, groupID string, userID string) (groupMember *relationtb.GroupMemberModel, err error)
+	// TakeGroupOwner retrieves the owner of a group by group ID.
 	TakeGroupOwner(ctx context.Context, groupID string) (*relationtb.GroupMemberModel, error)
-	FindGroupMembers(ctx context.Context, groupID string, userIDs []string) (groupMembers []*relationtb.GroupMemberModel, err error)            // *
-	FindGroupMemberUser(ctx context.Context, groupIDs []string, userID string) (groupMembers []*relationtb.GroupMemberModel, err error)         // *
-	FindGroupMemberRoleLevels(ctx context.Context, groupID string, roleLevels []int32) (groupMembers []*relationtb.GroupMemberModel, err error) // *
-	FindGroupMemberAll(ctx context.Context, groupID string) (groupMembers []*relationtb.GroupMemberModel, err error)                            // *
+	// FindGroupMembers retrieves members of a group filtered by user IDs.
+	FindGroupMembers(ctx context.Context, groupID string, userIDs []string) (groupMembers []*relationtb.GroupMemberModel, err error)
+	// FindGroupMemberUser retrieves groups that a user is a member of, filtered by group IDs.
+	FindGroupMemberUser(ctx context.Context, groupIDs []string, userID string) (groupMembers []*relationtb.GroupMemberModel, err error)
+	// FindGroupMemberRoleLevels retrieves group members filtered by their role levels within a group.
+	FindGroupMemberRoleLevels(ctx context.Context, groupID string, roleLevels []int32) (groupMembers []*relationtb.GroupMemberModel, err error)
+	// FindGroupMemberAll retrieves all members of a group.
+	FindGroupMemberAll(ctx context.Context, groupID string) (groupMembers []*relationtb.GroupMemberModel, err error)
+	// FindGroupsOwner retrieves the owners for multiple groups.
 	FindGroupsOwner(ctx context.Context, groupIDs []string) ([]*relationtb.GroupMemberModel, error)
+	// FindGroupMemberUserID retrieves the user IDs of all members in a group.
 	FindGroupMemberUserID(ctx context.Context, groupID string) ([]string, error)
+	// FindGroupMemberNum retrieves the number of members in a group.
 	FindGroupMemberNum(ctx context.Context, groupID string) (uint32, error)
+	// FindUserManagedGroupID retrieves group IDs managed by a user.
 	FindUserManagedGroupID(ctx context.Context, userID string) (groupIDs []string, err error)
+	// PageGroupRequest paginates through group requests for specified groups.
 	PageGroupRequest(ctx context.Context, groupIDs []string, pagination pagination.Pagination) (int64, []*relationtb.GroupRequestModel, error)
+	// GetGroupRoleLevelMemberIDs retrieves user IDs of group members with a specific role level.
 	GetGroupRoleLevelMemberIDs(ctx context.Context, groupID string, roleLevel int32) ([]string, error)
 
+	// PageGetJoinGroup paginates through groups that a user has joined.
 	PageGetJoinGroup(ctx context.Context, userID string, pagination pagination.Pagination) (total int64, totalGroupMembers []*relationtb.GroupMemberModel, err error)
+	// PageGetGroupMember paginates through members of a group.
 	PageGetGroupMember(ctx context.Context, groupID string, pagination pagination.Pagination) (total int64, totalGroupMembers []*relationtb.GroupMemberModel, err error)
+	// SearchGroupMember searches for group members based on a keyword, group ID, and pagination settings.
 	SearchGroupMember(ctx context.Context, keyword string, groupID string, pagination pagination.Pagination) (int64, []*relationtb.GroupMemberModel, error)
+	// HandlerGroupRequest processes a group join request with a specified result.
 	HandlerGroupRequest(ctx context.Context, groupID string, userID string, handledMsg string, handleResult int32, member *relationtb.GroupMemberModel) error
+	// DeleteGroupMember removes specified users from a group.
 	DeleteGroupMember(ctx context.Context, groupID string, userIDs []string) error
+	// MapGroupMemberUserID maps group IDs to their members' simplified user IDs.
 	MapGroupMemberUserID(ctx context.Context, groupIDs []string) (map[string]*relationtb.GroupSimpleUserID, error)
+	// MapGroupMemberNum maps group IDs to their member count.
 	MapGroupMemberNum(ctx context.Context, groupIDs []string) (map[string]uint32, error)
-	TransferGroupOwner(ctx context.Context, groupID string, oldOwnerUserID, newOwnerUserID string, roleLevel int32) error // 转让群
+	// TransferGroupOwner transfers the ownership of a group to another user.
+	TransferGroupOwner(ctx context.Context, groupID string, oldOwnerUserID, newOwnerUserID string, roleLevel int32) error
+	// UpdateGroupMember updates properties of a group member.
 	UpdateGroupMember(ctx context.Context, groupID string, userID string, data map[string]any) error
+	// UpdateGroupMembers batch updates properties of group members.
 	UpdateGroupMembers(ctx context.Context, data []*relationtb.BatchUpdateGroupMember) error
-	// GroupRequest
+
+	// CreateGroupRequest creates new group join requests.
 	CreateGroupRequest(ctx context.Context, requests []*relationtb.GroupRequestModel) error
+	// TakeGroupRequest retrieves a specific group join request.
 	TakeGroupRequest(ctx context.Context, groupID string, userID string) (*relationtb.GroupRequestModel, error)
+	// FindGroupRequests retrieves multiple group join requests.
 	FindGroupRequests(ctx context.Context, groupID string, userIDs []string) ([]*relationtb.GroupRequestModel, error)
+	// PageGroupRequestUser paginates through group join requests made by a user.
 	PageGroupRequestUser(ctx context.Context, userID string, pagination pagination.Pagination) (int64, []*relationtb.GroupRequestModel, error)
 
-	// 获取群总数
+	// CountTotal counts the total number of groups as of a certain date.
 	CountTotal(ctx context.Context, before *time.Time) (count int64, err error)
-	// 获取范围内群增量
+	// CountRangeEverydayTotal counts the daily group creation total within a specified date range.
 	CountRangeEverydayTotal(ctx context.Context, start time.Time, end time.Time) (map[string]int64, error)
+	// DeleteGroupMemberHash deletes the hash entries for group members in specified groups.
 	DeleteGroupMemberHash(ctx context.Context, groupIDs []string) error
 }
 
@@ -126,41 +172,74 @@ func (g *groupDatabase) FindGroupsOwner(ctx context.Context, groupIDs []string) 
 func (g *groupDatabase) GetGroupRoleLevelMemberIDs(ctx context.Context, groupID string, roleLevel int32) ([]string, error) {
 	return g.cache.GetGroupRoleLevelMemberIDs(ctx, groupID, roleLevel)
 }
-
 func (g *groupDatabase) CreateGroup(ctx context.Context, groups []*relationtb.GroupModel, groupMembers []*relationtb.GroupMemberModel) error {
+	// 如果 groups 和 groupMembers 都为空，则直接返回 nil，无需创建
 	if len(groups)+len(groupMembers) == 0 {
 		return nil
 	}
+	// 使用事务保证原子性
 	return g.ctxTx.Transaction(ctx, func(ctx context.Context) error {
+		// 创建新的缓存对象
 		c := g.cache.NewCache()
+		// 如果有群组需要创建
 		if len(groups) > 0 {
+			// 调用 groupDB 的 Create 方法创建群组
 			if err := g.groupDB.Create(ctx, groups); err != nil {
-				return err
+				return err // 创建失败则返回错误
 			}
+			// 对每个群组进行缓存删除操作
 			for _, group := range groups {
-				c = c.DelGroupsInfo(group.GroupID).
-					DelGroupMembersHash(group.GroupID).
-					DelGroupMembersHash(group.GroupID).
-					DelGroupsMemberNum(group.GroupID).
-					DelGroupMemberIDs(group.GroupID).
-					DelGroupAllRoleLevel(group.GroupID)
+				c = c.DelGroupsInfo(group.GroupID). // 删除群组信息缓存
+									DelGroupMembersHash(group.GroupID). // 删除群组成员哈希缓存
+									DelGroupMembersHash(group.GroupID). // 再次删除群组成员哈希缓存（可能是冗余）
+									DelGroupsMemberNum(group.GroupID).  // 删除群组成员数量缓存
+									DelGroupMemberIDs(group.GroupID).   // 删除群组成员ID列表缓存
+									DelGroupAllRoleLevel(group.GroupID) // 删除群组所有成员角色等级缓存
 			}
 		}
+		// 如果有群组成员需要创建
 		if len(groupMembers) > 0 {
+			// 调用 groupMemberDB 的 Create 方法创建群组成员
 			if err := g.groupMemberDB.Create(ctx, groupMembers); err != nil {
-				return err
+				return err // 创建失败则返回错误
 			}
+			// 对每个群组成员进行缓存删除操作
 			for _, groupMember := range groupMembers {
-				c = c.DelGroupMembersHash(groupMember.GroupID).
-					DelGroupsMemberNum(groupMember.GroupID).
-					DelGroupMemberIDs(groupMember.GroupID).
-					DelJoinedGroupID(groupMember.UserID).
-					DelGroupMembersInfo(groupMember.GroupID, groupMember.UserID).
-					DelGroupAllRoleLevel(groupMember.GroupID)
+				c = c.DelGroupMembersHash(groupMember.GroupID). // 删除群组成员哈希缓存
+										DelGroupsMemberNum(groupMember.GroupID).                      // 删除群组成员数量缓存
+										DelGroupMemberIDs(groupMember.GroupID).                       // 删除群组成员ID列表缓存
+										DelJoinedGroupID(groupMember.UserID).                         // 删除用户已加入群组ID缓存
+										DelGroupMembersInfo(groupMember.GroupID, groupMember.UserID). // 删除群组成员信息缓存
+										DelGroupAllRoleLevel(groupMember.GroupID)                     // 删除群组所有成员角色等级缓存
 			}
 		}
+		// 执行所有缓存删除操作
 		return c.ExecDel(ctx, true)
 	})
+}
+
+func (g *groupDatabase) AddRoomList(ctx context.Context, room *sdkws.RoomInfo) error {
+	return g.cache.AddRoomCache(ctx, room)
+}
+
+// 加入聊天室 把用户添加到 座位
+func (g *groupDatabase) JoinRoomList(ctx context.Context, roomID string, uid string, img string) (*sdkws.RoomInfo, error) {
+	return g.cache.UpdateRoomCache(ctx, roomID, uid, img)
+}
+
+// 退出聊天室
+func (g *groupDatabase) QuitRoomList(ctx context.Context, roomID string, uid string, img string) error {
+	return g.cache.RemoveRoomCache(ctx, roomID, uid, img)
+}
+
+// 退出聊天室
+func (g *groupDatabase) KickRoomList(ctx context.Context, roomID string, uid string, img string) error {
+	return g.cache.KickRoomMemberCache(ctx, roomID, uid, img)
+}
+
+// 解散聊天室
+func (g *groupDatabase) DismissRoom(ctx context.Context, roomID string) error {
+	return g.cache.DismissRoomCache(ctx, roomID)
 }
 
 func (g *groupDatabase) FindGroupMemberUserID(ctx context.Context, groupID string) ([]string, error) {

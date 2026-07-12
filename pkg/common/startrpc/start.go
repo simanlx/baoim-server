@@ -15,9 +15,9 @@
 package startrpc
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -27,23 +27,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/sync/errgroup"
-
 	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/prommetrics"
-
-	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
+	config2 "BaoIM-Server/pkg/common/config"
 	kdisc "BaoIM-Server/pkg/common/discoveryregister"
-
+	"BaoIM-Server/pkg/common/prommetrics"
+	util "BaoIM-Server/pkg/util/genutil"
 	"baoim/tools/discoveryregistry"
+	"baoim/tools/errs"
 	"baoim/tools/mw"
 	"baoim/tools/network"
-	"baoim/tools/utils"
+	grpcprometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Start rpc server.
@@ -51,36 +48,38 @@ func Start(
 	rpcPort int,
 	rpcRegisterName string,
 	prometheusPort int,
-	rpcFn func(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error,
+	config *config2.GlobalConfig,
+	rpcFn func(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error,
 	options ...grpc.ServerOption,
 ) error {
 	fmt.Printf("start %s server, port: %d, prometheusPort: %d, OpenIM version: %s\n",
-		rpcRegisterName, rpcPort, prometheusPort, config.Version)
+		rpcRegisterName, rpcPort, prometheusPort, config2.Version)
+	rpcTcpAddr := net.JoinHostPort(network.GetListenIP(config.Rpc.ListenIP), strconv.Itoa(rpcPort))
 	listener, err := net.Listen(
 		"tcp",
-		net.JoinHostPort(network.GetListenIP(config.Config.Rpc.ListenIP), strconv.Itoa(rpcPort)),
+		rpcTcpAddr,
 	)
 	if err != nil {
-		return err
+		return errs.Wrap(err, "listen err", rpcTcpAddr)
 	}
 
 	defer listener.Close()
-	client, err := kdisc.NewDiscoveryRegister(config.Config.Envs.Discovery)
+	client, err := kdisc.NewDiscoveryRegister(config)
 	if err != nil {
-		return utils.Wrap1(err)
+		return err
 	}
 
 	defer client.Close()
-	client.AddOption(mw.GrpcClient(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	registerIP, err := network.GetRpcRegisterIP(config.Config.Rpc.RegisterIP)
+	client.AddOption(mw.GrpcClient(), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithDefaultServiceConfig(fmt.Sprintf(`{"LoadBalancingPolicy": "%s"}`, "round_robin")))
+	registerIP, err := network.GetRpcRegisterIP(config.Rpc.RegisterIP)
 	if err != nil {
-		return err
+		return errs.Wrap(err)
 	}
 
 	var reg *prometheus.Registry
 	var metric *grpcprometheus.ServerMetrics
-	if config.Config.Prometheus.Enable {
-		cusMetrics := prommetrics.GetGrpcCusMetrics(rpcRegisterName)
+	if config.Prometheus.Enable {
+		cusMetrics := prommetrics.GetGrpcCusMetrics(rpcRegisterName, config)
 		reg, metric, _ = prommetrics.NewGrpcPromObj(cusMetrics)
 		options = append(options, mw.GrpcServer(), grpc.StreamInterceptor(metric.StreamServerInterceptor()),
 			grpc.UnaryInterceptor(metric.UnaryServerInterceptor()))
@@ -94,9 +93,9 @@ func Start(
 		once.Do(srv.GracefulStop)
 	}()
 
-	err = rpcFn(client, srv)
+	err = rpcFn(config, client, srv)
 	if err != nil {
-		return utils.Wrap1(err)
+		return err
 	}
 	err = client.Register(
 		rpcRegisterName,
@@ -105,48 +104,67 @@ func Start(
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
-		return utils.Wrap1(err)
+		return errs.Wrap(err)
 	}
-
-	var wg errgroup.Group
-
-	wg.Go(func() error {
-		if config.Config.Prometheus.Enable && prometheusPort != 0 {
-			metric.InitializeMetrics(srv)
-			// Create a HTTP server for prometheus.
-			httpServer := &http.Server{Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}), Addr: fmt.Sprintf("0.0.0.0:%d", prometheusPort)}
-			if err := httpServer.ListenAndServe(); err != nil {
-				log.Fatal("Unable to start a http server.")
-			}
-		}
-		return nil
-	})
-
-	wg.Go(func() error {
-		return utils.Wrap1(srv.Serve(listener))
-	})
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	<-sigs
 
 	var (
-		done = make(chan struct{}, 1)
-		gerr error
+		netDone    = make(chan struct{}, 2)
+		netErr     error
+		httpServer *http.Server
 	)
-
 	go func() {
-		once.Do(srv.GracefulStop)
-		gerr = wg.Wait()
-		close(done)
+		if config.Prometheus.Enable && prometheusPort != 0 {
+			metric.InitializeMetrics(srv)
+			// Create a HTTP server for prometheus.
+			httpServer = &http.Server{Handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}), Addr: fmt.Sprintf("0.0.0.0:%d", prometheusPort)}
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				netErr = errs.Wrap(err, "prometheus start err", httpServer.Addr)
+				netDone <- struct{}{}
+			}
+		}
 	}()
 
+	go func() {
+		err := srv.Serve(listener)
+		if err != nil {
+			netErr = errs.Wrap(err, "rpc start err: ", rpcTcpAddr)
+			netDone <- struct{}{}
+		}
+	}()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM)
 	select {
-	case <-done:
-		return gerr
-
-	case <-time.After(15 * time.Second):
-		return utils.Wrap1(errors.New("timeout exit"))
+	case <-sigs:
+		util.SIGTERMExit()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := gracefulStopWithCtx(ctx, srv.GracefulStop); err != nil {
+			return err
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err := httpServer.Shutdown(ctx)
+		if err != nil {
+			return errs.Wrap(err, "shutdown err")
+		}
+		return nil
+	case <-netDone:
+		close(netDone)
+		return netErr
 	}
+}
 
+func gracefulStopWithCtx(ctx context.Context, f func()) error {
+	done := make(chan struct{}, 1)
+	go func() {
+		f()
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return errs.Wrap(errors.New("timeout, ctx graceful stop"))
+	case <-done:
+		return nil
+	}
 }

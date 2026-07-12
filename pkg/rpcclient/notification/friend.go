@@ -17,21 +17,20 @@ package notification
 import (
 	"context"
 
-	"baoim/tools/mcontext"
-
-	"baoim/protocol/constant"
-	pbfriend "baoim/protocol/friend"
-	"baoim/protocol/sdkws"
-
+	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/convert"
 	"BaoIM-Server/pkg/common/db/controller"
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 	"BaoIM-Server/pkg/rpcclient"
+	"baoim/protocol/constant"
+	pbfriend "baoim/protocol/friend"
+	"baoim/protocol/sdkws"
+	"baoim/tools/mcontext"
 )
 
 type FriendNotificationSender struct {
 	*rpcclient.NotificationSender
-	// 找不到报错
+	// Target not found err
 	getUsersInfo func(ctx context.Context, userIDs []string) ([]CommonUser, error)
 	// db controller
 	db controller.FriendDatabase
@@ -82,11 +81,12 @@ func WithRpcFunc(
 }
 
 func NewFriendNotificationSender(
+	config *config.GlobalConfig,
 	msgRpcClient *rpcclient.MessageRpcClient,
 	opts ...friendNotificationSenderOptions,
 ) *FriendNotificationSender {
 	f := &FriendNotificationSender{
-		NotificationSender: rpcclient.NewNotificationSender(rpcclient.WithRpcClient(msgRpcClient)),
+		NotificationSender: rpcclient.NewNotificationSender(config, rpcclient.WithRpcClient(msgRpcClient)),
 	}
 	for _, opt := range opts {
 		opt(f)
@@ -109,6 +109,7 @@ func (f *FriendNotificationSender) getUsersInfoMap(
 	return result, nil
 }
 
+//nolint:unused
 func (f *FriendNotificationSender) getFromToUserNickname(
 	ctx context.Context,
 	fromUserID, toUserID string,
@@ -129,12 +130,10 @@ func (f *FriendNotificationSender) FriendApplicationAddNotification(
 	ctx context.Context,
 	req *pbfriend.ApplyToAddFriendReq,
 ) error {
-
 	tips := sdkws.FriendApplicationTips{FromToUserID: &sdkws.FromToUserID{
 		FromUserID: req.FromUserID,
 		ToUserID:   req.ToUserID,
 	}}
-
 	return f.Notification(ctx, req.FromUserID, req.ToUserID, constant.FriendApplicationNotification, &tips)
 }
 
@@ -199,7 +198,7 @@ func (f *FriendNotificationSender) FriendRemarkSetNotification(ctx context.Conte
 	return f.Notification(ctx, fromUserID, toUserID, constant.FriendRemarkSetNotification, &tips)
 }
 func (f *FriendNotificationSender) FriendsInfoUpdateNotification(ctx context.Context, toUserID string, friendIDs []string) error {
-	tips := sdkws.FriendsInfoUpdateTips{}
+	tips := sdkws.FriendsInfoUpdateTips{FromToUserID: &sdkws.FromToUserID{}}
 	tips.FromToUserID.ToUserID = toUserID
 	tips.FriendIDs = friendIDs
 	return f.Notification(ctx, toUserID, toUserID, constant.FriendsInfoUpdateNotification, &tips)
@@ -216,7 +215,9 @@ func (f *FriendNotificationSender) BlackDeletedNotification(ctx context.Context,
 		FromUserID: req.OwnerUserID,
 		ToUserID:   req.BlackUserID,
 	}}
-	f.Notification(ctx, req.OwnerUserID, req.BlackUserID, constant.BlackDeletedNotification, &blackDeletedTips)
+	if err := f.Notification(ctx, req.OwnerUserID, req.BlackUserID, constant.BlackDeletedNotification, &blackDeletedTips); err != nil {
+		//err
+	}
 }
 
 func (f *FriendNotificationSender) FriendInfoUpdatedNotification(
@@ -225,5 +226,8 @@ func (f *FriendNotificationSender) FriendInfoUpdatedNotification(
 	needNotifiedUserID string,
 ) {
 	tips := sdkws.UserInfoUpdatedTips{UserID: changedUserID}
-	f.Notification(ctx, mcontext.GetOpUserID(ctx), needNotifiedUserID, constant.FriendInfoUpdatedNotification, &tips)
+	if err := f.Notification(ctx, mcontext.GetOpUserID(ctx), needNotifiedUserID,
+		constant.FriendInfoUpdatedNotification, &tips); err != nil {
+		// err
+	}
 }

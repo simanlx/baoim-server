@@ -15,6 +15,7 @@
 package api
 
 import (
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/constant"
 	"baoim/protocol/msggateway"
 	"baoim/protocol/user"
@@ -23,9 +24,6 @@ import (
 	"baoim/tools/errs"
 	"baoim/tools/log"
 	"github.com/gin-gonic/gin"
-
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/rpcclient"
 )
 
 type UserApi rpcclient.User
@@ -68,10 +66,10 @@ func (u *UserApi) GetUsers(c *gin.Context) {
 func (u *UserApi) GetUsersOnlineStatus(c *gin.Context) {
 	var req msggateway.GetUsersOnlineStatusReq
 	if err := c.BindJSON(&req); err != nil {
-		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
+		apiresp.GinError(c, err)
 		return
 	}
-	conns, err := u.Discov.GetConns(c, config.Config.RpcRegisterName.OpenImMessageGatewayName)
+	conns, err := u.Discov.GetConns(c, u.Config.RpcRegisterName.OpenImMessageGatewayName)
 	if err != nil {
 		apiresp.GinError(c, err)
 		return
@@ -86,7 +84,7 @@ func (u *UserApi) GetUsersOnlineStatus(c *gin.Context) {
 		msgClient := msggateway.NewMsgGatewayClient(v)
 		reply, err := msgClient.GetUsersOnlineStatus(c, &req)
 		if err != nil {
-			log.ZWarn(c, "GetUsersOnlineStatus rpc err", err)
+			log.ZDebug(c, "GetUsersOnlineStatus rpc error", err)
 
 			parseError := apiresp.ParseError(err)
 			if parseError.ErrCode == errs.NoPermissionError {
@@ -135,7 +133,7 @@ func (u *UserApi) GetUsersOnlineTokenDetail(c *gin.Context) {
 		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap())
 		return
 	}
-	conns, err := u.Discov.GetConns(c, config.Config.RpcRegisterName.OpenImMessageGatewayName)
+	conns, err := u.Discov.GetConns(c, u.Config.RpcRegisterName.OpenImMessageGatewayName)
 	if err != nil {
 		apiresp.GinError(c, err)
 		return
@@ -145,7 +143,7 @@ func (u *UserApi) GetUsersOnlineTokenDetail(c *gin.Context) {
 		msgClient := msggateway.NewMsgGatewayClient(v)
 		reply, err := msgClient.GetUsersOnlineStatus(c, &req)
 		if err != nil {
-			log.ZWarn(c, "GetUsersOnlineStatus rpc  err", err)
+			log.ZWarn(c, "GetUsersOnlineStatus rpc err", err)
 			continue
 		} else {
 			wsResult = append(wsResult, reply.SuccessResult...)
@@ -201,22 +199,22 @@ func (u *UserApi) GetSubscribeUsersStatus(c *gin.Context) {
 	a2r.Call(user.UserClient.GetSubscribeUsersStatus, u.Client, c)
 }
 
-// ProcessUserCommandAdd user general function add
+// ProcessUserCommandAdd user general function add.
 func (u *UserApi) ProcessUserCommandAdd(c *gin.Context) {
 	a2r.Call(user.UserClient.ProcessUserCommandAdd, u.Client, c)
 }
 
-// ProcessUserCommandDelete user general function delete
+// ProcessUserCommandDelete user general function delete.
 func (u *UserApi) ProcessUserCommandDelete(c *gin.Context) {
 	a2r.Call(user.UserClient.ProcessUserCommandDelete, u.Client, c)
 }
 
-// ProcessUserCommandUpdate  user general function update
+// ProcessUserCommandUpdate  user general function update.
 func (u *UserApi) ProcessUserCommandUpdate(c *gin.Context) {
 	a2r.Call(user.UserClient.ProcessUserCommandUpdate, u.Client, c)
 }
 
-// ProcessUserCommandGet user general function get
+// ProcessUserCommandGet user general function get.
 func (u *UserApi) ProcessUserCommandGet(c *gin.Context) {
 	a2r.Call(user.UserClient.ProcessUserCommandGet, u.Client, c)
 }

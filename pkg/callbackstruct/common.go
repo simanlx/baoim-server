@@ -64,7 +64,6 @@ func (c CommonCallbackResp) Parse() error {
 	if c.ActionCode != errs.NoError || c.NextCode == Next {
 		return errs.NewCodeError(int(c.ErrCode), c.ErrMsg).WithDetail(c.ErrDlt)
 	}
-
 	return nil
 }
 

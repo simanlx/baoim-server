@@ -16,9 +16,9 @@
 # This script does a fast type check of script srnetes code for all platforms.
 # Usage: `scripts/verify-typecheck.sh`.
 
-set -o errexit
-set -o nounset
-set -o pipefail
+
+
+
 
 OPENIM_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 source "${OPENIM_ROOT}/scripts/lib/init.sh"
@@ -33,7 +33,7 @@ cd "${OPENIM_ROOT}"
 ret=0
 TYPECHECK_SERIAL="${TYPECHECK_SERIAL:-false}"
 scripts/run-in-gopath.sh \
-    go run test/typecheck/typecheck.go "$@" "--serial=$TYPECHECK_SERIAL" || ret=$?
+go run test/typecheck/typecheck.go "$@" "--serial=$TYPECHECK_SERIAL" || ret=$?
 if [[ $ret -ne 0 ]]; then
   openim::log::error "Type Check has failed. This may cause cross platform build failures." >&2
   openim::log::error "Please see https://github.com/openimsdk/open-im-server/tree/main/test/typecheck for more information." >&2

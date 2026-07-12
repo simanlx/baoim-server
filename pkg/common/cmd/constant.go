@@ -23,4 +23,5 @@ const (
 	RpcMsgServer          = "msg"
 	RpcThirdServer        = "third"
 	RpcUserServer         = "user"
+	RpcRoomServer         = "room" //增加直播聊天室服务
 )

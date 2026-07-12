@@ -17,13 +17,12 @@ package mgo
 import (
 	"context"
 
+	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewBlackMongo(db *mongo.Database) (relation.BlackModelInterface, error) {

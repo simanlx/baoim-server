@@ -15,9 +15,9 @@
 
 
 # Common utilities, variables and checks for all build scripts.
-set -o errexit
-set +o nounset
-set -o pipefail
+
+
+
 
 # Sourced flag
 COMMON_SOURCED=true
@@ -38,6 +38,7 @@ openim::common::prometheus_port() {
     ${MESSAGE_PROM_PORT}            # Prometheus port for message service
     ${MSG_GATEWAY_PROM_PORT}        # Prometheus port for message gateway service
     ${GROUP_PROM_PORT}              # Prometheus port for group service
+    ${ROOM_PROM_PORT}              # Prometheus port for ROOM  service
     ${AUTH_PROM_PORT}               # Prometheus port for authentication service
     ${PUSH_PROM_PORT}               # Prometheus port for push notification service
     ${CONVERSATION_PROM_PORT}       # Prometheus port for conversation service
@@ -59,6 +60,7 @@ openim::common::service_name() {
         openim-msg
         openim-msg-gateway
         openim-group
+        openim-room
         openim-auth
         openim-push
         openim-conversation
@@ -84,6 +86,7 @@ openim::common::service_port() {
     ${OPENIM_MESSAGE_PORT}         # Message service
     ${OPENIM_MESSAGE_GATEWAY_PORT} # Message gateway
     ${OPENIM_GROUP_PORT}           # Group service
+    ${OPENIM_ROOM_PORT}           # ROOM service
     ${OPENIM_AUTH_PORT}            # Authorization service
     ${OPENIM_PUSH_PORT}            # Push service
     ${OPENIM_CONVERSATION_PORT}    # Conversation service
@@ -98,6 +101,22 @@ openim::common::service_port() {
 IFS=" " read -ra OPENIM_SERVER_PORT_TARGETS <<< "$(openim::common::service_port)"
 readonly OPENIM_SERVER_PORT_TARGETS
 readonly OPENIM_SERVER_PORT_LISTARIES=("${OPENIM_SERVER_PORT_TARGETS[@]##*/}")
+
+
+OPENIM_ALL_SERVICE_LIBRARIES_NO_TRANSFER=()
+
+for target in "${OPENIM_SERVER_BINARIES_NO_TRANSFER[@]}"; do
+  OPENIM_ALL_SERVICE_LIBRARIES_NO_TRANSFER+=("${OPENIM_OUTPUT_HOSTBIN}/${target}")
+done
+readonly OPENIM_ALL_SERVICE_LIBRARIES_NO_TRANSFER
+
+
+
+OPENIM_ALL_SERVICE_LIBRARIES=()
+for target in "${OPENIM_SERVER_BINARIES_NO_CMDUTILS[@]}"; do
+  OPENIM_ALL_SERVICE_LIBRARIES+=("${OPENIM_OUTPUT_HOSTBIN}/${target}")
+done
+readonly OPENIM_ALL_SERVICE_LIBRARIES
 
 openim::common::dependency_name() {
     local targets=(

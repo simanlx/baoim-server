@@ -17,13 +17,13 @@ package mgo
 import (
 	"context"
 
+	"BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/tools/errs"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewGroupRequestMgo(db *mongo.Database) (relation.GroupRequestModelInterface, error) {
@@ -36,7 +36,7 @@ func NewGroupRequestMgo(db *mongo.Database) (relation.GroupRequestModelInterface
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errs.Wrap(err)
 	}
 	return &GroupRequestMgo{coll: coll}, nil
 }

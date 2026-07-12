@@ -19,11 +19,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/dtm-labs/rockscache"
-	"github.com/redis/go-redis/v9"
-
 	"BaoIM-Server/pkg/common/db/s3"
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
+	"github.com/dtm-labs/rockscache"
+	"github.com/redis/go-redis/v9"
 )
 
 type ObjectCache interface {

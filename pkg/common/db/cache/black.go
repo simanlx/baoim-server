@@ -15,13 +15,15 @@
 package cache
 
 import (
+	"BaoIM-Server/pkg/common/cachekey"
+	"BaoIM-Server/pkg/common/config"
+	"baoim/tools/log"
 	"context"
 	"time"
 
+	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 	"github.com/dtm-labs/rockscache"
 	"github.com/redis/go-redis/v9"
-
-	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 )
 
 const (
@@ -46,17 +48,17 @@ type BlackCacheRedis struct {
 	blackDB    relationtb.BlackModelInterface
 }
 
-func NewBlackCacheRedis(
-	rdb redis.UniversalClient,
-	blackDB relationtb.BlackModelInterface,
-	options rockscache.Options,
-) BlackCache {
+func NewBlackCacheRedis(rdb redis.UniversalClient, blackDB relationtb.BlackModelInterface, options rockscache.Options) BlackCache {
 	rcClient := rockscache.NewClient(rdb, options)
-
+	mc := NewMetaCacheRedis(rcClient)
+	b := config.Config.LocalCache.Friend
+	log.ZDebug(context.Background(), "black local cache init", "Topic", b.Topic, "SlotNum", b.SlotNum, "SlotSize", b.SlotSize, "enable", b.Enable())
+	mc.SetTopic(b.Topic)
+	mc.SetRawRedisClient(rdb)
 	return &BlackCacheRedis{
 		expireTime: blackExpireTime,
 		rcClient:   rcClient,
-		metaCache:  NewMetaCacheRedis(rcClient),
+		metaCache:  mc,
 		blackDB:    blackDB,
 	}
 }
@@ -66,12 +68,12 @@ func (b *BlackCacheRedis) NewCache() BlackCache {
 		expireTime: b.expireTime,
 		rcClient:   b.rcClient,
 		blackDB:    b.blackDB,
-		metaCache:  NewMetaCacheRedis(b.rcClient, b.metaCache.GetPreDelKeys()...),
+		metaCache:  b.Copy(),
 	}
 }
 
 func (b *BlackCacheRedis) getBlackIDsKey(ownerUserID string) string {
-	return blackIDsKey + ownerUserID
+	return cachekey.GetBlackIDsKey(ownerUserID)
 }
 
 func (b *BlackCacheRedis) GetBlackIDs(ctx context.Context, userID string) (blackIDs []string, err error) {

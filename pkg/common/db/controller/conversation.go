@@ -18,46 +18,61 @@ import (
 	"context"
 	"time"
 
-	"baoim/tools/pagination"
-
-	"BaoIM-Server/pkg/msgprocessor"
-
-	"baoim/protocol/constant"
-	"baoim/tools/log"
-	"baoim/tools/tx"
-	"baoim/tools/utils"
-
 	"BaoIM-Server/pkg/common/db/cache"
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
+	"BaoIM-Server/pkg/msgprocessor"
+	"baoim/protocol/constant"
+	"baoim/tools/log"
+	"baoim/tools/pagination"
+	"baoim/tools/tx"
+	"baoim/tools/utils"
 )
 
 type ConversationDatabase interface {
-	// UpdateUserConversationFiled 更新用户该会话的属性信息
-	UpdateUsersConversationFiled(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error
-	// CreateConversation 创建一批新的会话
+	// UpdateUsersConversationField updates the properties of a conversation for specified users.
+	UpdateUsersConversationField(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error
+	// CreateConversation creates a batch of new conversations.
 	CreateConversation(ctx context.Context, conversations []*relationtb.ConversationModel) error
-	// SyncPeerUserPrivateConversation 同步对端私聊会话内部保证事务操作
+	// SyncPeerUserPrivateConversationTx ensures transactional operation while syncing private conversations between peers.
 	SyncPeerUserPrivateConversationTx(ctx context.Context, conversation []*relationtb.ConversationModel) error
-	// FindConversations 根据会话ID获取某个用户的多个会话
+	// FindConversations retrieves multiple conversations of a user by conversation IDs.
 	FindConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*relationtb.ConversationModel, error)
-	// FindRecvMsgNotNotifyUserIDs 获取超级大群开启免打扰的用户ID
-	//FindRecvMsgNotNotifyUserIDs(ctx context.Context, groupID string) ([]string, error)
-	// GetUserAllConversation 获取一个用户在服务器上所有的会话
+	// GetUserAllConversation fetches all conversations of a user on the server.
 	GetUserAllConversation(ctx context.Context, ownerUserID string) ([]*relationtb.ConversationModel, error)
-	// SetUserConversations 设置用户多个会话属性，如果会话不存在则创建，否则更新,内部保证原子性
+	// SetUserConversations sets multiple conversation properties for a user, creates new conversations if they do not exist, or updates them otherwise. This operation is atomic.
 	SetUserConversations(ctx context.Context, ownerUserID string, conversations []*relationtb.ConversationModel) error
-	// SetUsersConversationFiledTx 设置多个用户会话关于某个字段的更新操作，如果会话不存在则创建，否则更新，内部保证事务操作
-	SetUsersConversationFiledTx(ctx context.Context, userIDs []string, conversation *relationtb.ConversationModel, filedMap map[string]any) error
+	// SetUsersConversationFieldTx updates a specific field for multiple users' conversations, creating new conversations if they do not exist, or updates them otherwise. This operation is
+	// transactional.
+	SetUsersConversationFieldTx(ctx context.Context, userIDs []string, conversation *relationtb.ConversationModel, fieldMap map[string]any) error
+	// CreateGroupChatConversation creates a group chat conversation for the specified group ID and user IDs.
 	CreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error
+
+	//增加 聊天室创建会话列表
+	RoomCreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error
+	//解散群组时删除会话 及缓存
+	DeleteRoomAllConversation(ctx context.Context, roomID string, userIDs []string) error
+
+	// DeleteUserRoomConversation 删除指定用户的指定聊天室会话 及缓存
+	DeleteUserRoomConversation(ctx context.Context, uID string, roomID string) error
+
+	// GetConversationIDs retrieves conversation IDs for a given user.
 	GetConversationIDs(ctx context.Context, userID string) ([]string, error)
+	// GetUserConversationIDsHash gets the hash of conversation IDs for a given user.
 	GetUserConversationIDsHash(ctx context.Context, ownerUserID string) (hash uint64, err error)
+	// GetAllConversationIDs fetches all conversation IDs.
 	GetAllConversationIDs(ctx context.Context) ([]string, error)
+	// GetAllConversationIDsNumber returns the number of all conversation IDs.
 	GetAllConversationIDsNumber(ctx context.Context) (int64, error)
+	// PageConversationIDs paginates through conversation IDs based on the specified pagination settings.
 	PageConversationIDs(ctx context.Context, pagination pagination.Pagination) (conversationIDs []string, err error)
-	//GetUserAllHasReadSeqs(ctx context.Context, ownerUserID string) (map[string]int64, error)
+	// GetConversationsByConversationID retrieves conversations by their IDs.
 	GetConversationsByConversationID(ctx context.Context, conversationIDs []string) ([]*relationtb.ConversationModel, error)
+	// GetConversationIDsNeedDestruct fetches conversations that need to be destructed based on specific criteria.
 	GetConversationIDsNeedDestruct(ctx context.Context) ([]*relationtb.ConversationModel, error)
+	// GetConversationNotReceiveMessageUserIDs gets user IDs for users in a conversation who have not received messages.
 	GetConversationNotReceiveMessageUserIDs(ctx context.Context, conversationID string) ([]string, error)
+	//GetUserAllHasReadSeqs(ctx context.Context, ownerUserID string) (map[string]int64, error)
+	//FindRecvMsgNotNotifyUserIDs(ctx context.Context, groupID string) ([]string, error)
 }
 
 func NewConversationDatabase(conversation relationtb.ConversationModelInterface, cache cache.ConversationCache, tx tx.CtxTx) ConversationDatabase {
@@ -74,7 +89,7 @@ type conversationDatabase struct {
 	tx             tx.CtxTx
 }
 
-func (c *conversationDatabase) SetUsersConversationFiledTx(ctx context.Context, userIDs []string, conversation *relationtb.ConversationModel, filedMap map[string]any) (err error) {
+func (c *conversationDatabase) SetUsersConversationFieldTx(ctx context.Context, userIDs []string, conversation *relationtb.ConversationModel, fieldMap map[string]any) (err error) {
 	return c.tx.Transaction(ctx, func(ctx context.Context) error {
 		cache := c.cache.NewCache()
 		if conversation.GroupID != "" {
@@ -85,27 +100,27 @@ func (c *conversationDatabase) SetUsersConversationFiledTx(ctx context.Context, 
 			return err
 		}
 		if len(haveUserIDs) > 0 {
-			_, err = c.conversationDB.UpdateByMap(ctx, haveUserIDs, conversation.ConversationID, filedMap)
+			_, err = c.conversationDB.UpdateByMap(ctx, haveUserIDs, conversation.ConversationID, fieldMap)
 			if err != nil {
 				return err
 			}
 			cache = cache.DelUsersConversation(conversation.ConversationID, haveUserIDs...)
-			if _, ok := filedMap["has_read_seq"]; ok {
+			if _, ok := fieldMap["has_read_seq"]; ok {
 				for _, userID := range haveUserIDs {
 					cache = cache.DelUserAllHasReadSeqs(userID, conversation.ConversationID)
 				}
 			}
-			if _, ok := filedMap["recv_msg_opt"]; ok {
+			if _, ok := fieldMap["recv_msg_opt"]; ok {
 				cache = cache.DelConversationNotReceiveMessageUserIDs(conversation.ConversationID)
 			}
 		}
 		NotUserIDs := utils.DifferenceString(haveUserIDs, userIDs)
-		log.ZDebug(ctx, "SetUsersConversationFiledTx", "NotUserIDs", NotUserIDs, "haveUserIDs", haveUserIDs, "userIDs", userIDs)
+		log.ZDebug(ctx, "SetUsersConversationFieldTx", "NotUserIDs", NotUserIDs, "haveUserIDs", haveUserIDs, "userIDs", userIDs)
 		var conversations []*relationtb.ConversationModel
 		now := time.Now()
 		for _, v := range NotUserIDs {
 			temp := new(relationtb.ConversationModel)
-			if err := utils.CopyStructFields(temp, conversation); err != nil {
+			if err = utils.CopyStructFields(temp, conversation); err != nil {
 				return err
 			}
 			temp.OwnerUserID = v
@@ -123,7 +138,7 @@ func (c *conversationDatabase) SetUsersConversationFiledTx(ctx context.Context, 
 	})
 }
 
-func (c *conversationDatabase) UpdateUsersConversationFiled(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error {
+func (c *conversationDatabase) UpdateUsersConversationField(ctx context.Context, userIDs []string, conversationID string, args map[string]any) error {
 	_, err := c.conversationDB.UpdateByMap(ctx, userIDs, conversationID, args)
 	if err != nil {
 		return err
@@ -133,7 +148,6 @@ func (c *conversationDatabase) UpdateUsersConversationFiled(ctx context.Context,
 	if _, ok := args["recv_msg_opt"]; ok {
 		cache = cache.DelConversationNotReceiveMessageUserIDs(conversationID)
 	}
-
 	return cache.ExecDel(ctx)
 }
 
@@ -148,7 +162,6 @@ func (c *conversationDatabase) CreateConversation(ctx context.Context, conversat
 		cache = cache.DelConversationNotReceiveMessageUserIDs(conversation.ConversationID)
 		userIDs = append(userIDs, conversation.OwnerUserID)
 	}
-
 	return cache.DelConversationIDs(userIDs...).DelUserConversationIDsHash(userIDs...).ExecDel(ctx)
 }
 
@@ -256,16 +269,19 @@ func (c *conversationDatabase) CreateGroupChatConversation(ctx context.Context, 
 	return c.tx.Transaction(ctx, func(ctx context.Context) error {
 		cache := c.cache.NewCache()
 		conversationID := msgprocessor.GetConversationIDBySessionType(constant.SuperGroupChatType, groupID)
+
 		existConversationUserIDs, err := c.conversationDB.FindUserID(ctx, userIDs, []string{conversationID})
 		if err != nil {
 			return err
 		}
 		notExistUserIDs := utils.DifferenceString(userIDs, existConversationUserIDs)
 		var conversations []*relationtb.ConversationModel
+
 		for _, v := range notExistUserIDs {
 			conversation := relationtb.ConversationModel{ConversationType: constant.SuperGroupChatType, GroupID: groupID, OwnerUserID: v, ConversationID: conversationID}
 			conversations = append(conversations, &conversation)
 			cache = cache.DelConversations(v, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID)
+
 		}
 		cache = cache.DelConversationIDs(notExistUserIDs...).DelUserConversationIDsHash(notExistUserIDs...)
 		if len(conversations) > 0 {
@@ -282,6 +298,102 @@ func (c *conversationDatabase) CreateGroupChatConversation(ctx context.Context, 
 			cache = cache.DelConversations(v, conversationID)
 		}
 		return cache.ExecDel(ctx)
+	})
+}
+
+// 删除会话数据
+//func (c *conversationDatabase) RoomDeleteGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error {
+//	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+//		err := c.conversationDB.Delete(ctx, []string{groupID}) // 批量插入新会话
+//		if err != nil {
+//			return err
+//		}
+//
+//		return nil
+//	})
+//
+//}
+
+// 解散聊天室时删除所有会话
+func (c *conversationDatabase) DeleteUserRoomConversation(ctx context.Context, uID string, roomID string) error {
+	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+		err := c.conversationDB.DeleteOne(ctx, uID, roomID)
+		if err != nil {
+			return err
+		}
+		err = c.cache.DelUsersRoomConversation(ctx, []string{uID}, "g_"+roomID)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+// 解散聊天室时删除所有会话
+func (c *conversationDatabase) DeleteRoomAllConversation(ctx context.Context, roomID string, userIDs []string) error {
+	return c.tx.Transaction(ctx, func(ctx context.Context) error {
+		//更新 字段group_ID字段=groupID 的会话过期时间
+		//err := c.conversationDB.Expire(ctx, roomID, time.Now().Add(1*time.Minute))
+		//if err != nil {
+		//	return err
+		//}
+
+		err := c.conversationDB.Delete(ctx, []string{roomID}) // 批量插入新会话
+		if err != nil {
+			return err
+		}
+		////删除用户缓存  这里有必要吗?
+		err = c.cache.DelUsersRoomConversation(ctx, userIDs, "g_"+roomID)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+// /增加聊天室 测试  创建 会话列表
+func (c *conversationDatabase) RoomCreateGroupChatConversation(ctx context.Context, groupID string, userIDs []string) error {
+	return c.tx.Transaction(ctx, func(ctx context.Context) error { // 开启数据库事务
+		cache := c.cache.NewCache()                                                                    // 新建缓存对象
+		conversationID := msgprocessor.GetConversationIDBySessionType(constant.GroupChatType, groupID) // 根据群聊类型和群ID获取会话ID
+
+		existConversationUserIDs, err := c.conversationDB.FindUserID(ctx, userIDs, []string{conversationID}) // 查询用户已存在该会话
+		if err != nil {
+			return err // 查询出错则返回错误
+		}
+		notExistUserIDs := utils.DifferenceString(userIDs, existConversationUserIDs) // 计算还没有会话的用户ID
+		var conversations []*relationtb.ConversationModel                            // 定义会话模型切片
+		for _, v := range notExistUserIDs {                                          // 遍历未存在会话的用户
+			conversation := relationtb.ConversationModel{ConversationType: constant.GroupChatType,
+				GroupID:        groupID,
+				OwnerUserID:    v,
+				ConversationID: conversationID,
+				CreateTime:     time.Time{},
+			} // 构建会话模型
+			conversations = append(conversations, &conversation)                                                      // 加入会话模型切片
+			cache = cache.DelConversations(v, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID) // 清理缓存相关数据
+
+			//如果用户会话未创建过 设置用户的最小seq为群组的最大seq
+			_ = c.cache.SetConversationUserMinAndMaxSeq(ctx, conversationID, v) // 设置用户会话的最小和最大序列为0
+
+		}
+		cache = cache.DelConversationIDs(notExistUserIDs...).DelUserConversationIDsHash(notExistUserIDs...) // 删除未存在会话用户的会话ID和hash缓存
+		if len(conversations) > 0 {                                                                         // 如果有需要新建的会话
+			err = c.conversationDB.Create(ctx, conversations) // 批量插入新会话
+			if err != nil {
+				return err // 插入失败返回错误
+			}
+		}
+
+		_, err = c.conversationDB.UpdateByMap(ctx, existConversationUserIDs, conversationID, map[string]any{"max_seq": 0}) // 已存在会话的用户，重置max_seq为0
+		if err != nil {
+			return err // 更新失败返回错误
+		}
+		for _, v := range existConversationUserIDs { // 清理已存在用户的相关缓存
+			cache = cache.DelConversations(v, conversationID)
+		}
+		return cache.ExecDel(ctx) // 执行缓存删除操作
 	})
 }
 

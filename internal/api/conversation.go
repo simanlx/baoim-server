@@ -15,12 +15,10 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
-
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/conversation"
 	"baoim/tools/a2r"
-
-	"BaoIM-Server/pkg/rpcclient"
+	"github.com/gin-gonic/gin"
 )
 
 type ConversationApi rpcclient.Conversation
@@ -33,8 +31,8 @@ func (o *ConversationApi) GetAllConversations(c *gin.Context) {
 	a2r.Call(conversation.ConversationClient.GetAllConversations, o.Client, c)
 }
 
-func (o *ConversationApi) GetConversationsList(c *gin.Context) {
-	a2r.Call(conversation.ConversationClient.GetConversationList, o.Client, c)
+func (o *ConversationApi) GetSortedConversationList(c *gin.Context) {
+	a2r.Call(conversation.ConversationClient.GetSortedConversationList, o.Client, c)
 }
 
 func (o *ConversationApi) GetConversation(c *gin.Context) {

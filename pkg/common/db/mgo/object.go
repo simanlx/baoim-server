@@ -17,12 +17,12 @@ package mgo
 import (
 	"context"
 
+	"BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/tools/errs"
 	"baoim/tools/mgoutil"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewS3Mongo(db *mongo.Database) (relation.ObjectInfoModelInterface, error) {
@@ -34,7 +34,7 @@ func NewS3Mongo(db *mongo.Database) (relation.ObjectInfoModelInterface, error) {
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errs.Wrap(err)
 	}
 	return &S3Mongo{coll: coll}, nil
 }

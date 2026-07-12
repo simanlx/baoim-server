@@ -15,35 +15,33 @@
 package prommetrics
 
 import (
-	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-
 	config2 "BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/ginprometheus"
+	gp "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-func NewGrpcPromObj(cusMetrics []prometheus.Collector) (*prometheus.Registry, *grpc_prometheus.ServerMetrics, error) {
-	////////////////////////////////////////////////////////
+func NewGrpcPromObj(cusMetrics []prometheus.Collector) (*prometheus.Registry, *gp.ServerMetrics, error) {
 	reg := prometheus.NewRegistry()
-	grpcMetrics := grpc_prometheus.NewServerMetrics()
+	grpcMetrics := gp.NewServerMetrics()
 	grpcMetrics.EnableHandlingTimeHistogram()
 	cusMetrics = append(cusMetrics, grpcMetrics, collectors.NewGoCollector())
 	reg.MustRegister(cusMetrics...)
 	return reg, grpcMetrics, nil
 }
 
-func GetGrpcCusMetrics(registerName string) []prometheus.Collector {
+func GetGrpcCusMetrics(registerName string, config *config2.GlobalConfig) []prometheus.Collector {
 	switch registerName {
-	case config2.Config.RpcRegisterName.OpenImMessageGatewayName:
+	case config.RpcRegisterName.OpenImMessageGatewayName:
 		return []prometheus.Collector{OnlineUserGauge}
-	case config2.Config.RpcRegisterName.OpenImMsgName:
+	case config.RpcRegisterName.OpenImMsgName:
 		return []prometheus.Collector{SingleChatMsgProcessSuccessCounter, SingleChatMsgProcessFailedCounter, GroupChatMsgProcessSuccessCounter, GroupChatMsgProcessFailedCounter}
 	case "Transfer":
 		return []prometheus.Collector{MsgInsertRedisSuccessCounter, MsgInsertRedisFailedCounter, MsgInsertMongoSuccessCounter, MsgInsertMongoFailedCounter, SeqSetFailedCounter}
-	case config2.Config.RpcRegisterName.OpenImPushName:
+	case config.RpcRegisterName.OpenImPushName:
 		return []prometheus.Collector{MsgOfflinePushFailedCounter}
-	case config2.Config.RpcRegisterName.OpenImAuthName:
+	case config.RpcRegisterName.OpenImAuthName:
 		return []prometheus.Collector{UserLoginCounter}
 	default:
 		return nil

@@ -19,16 +19,14 @@ import (
 	"strings"
 
 	"BaoIM-Server/pkg/authverify"
-
-	"google.golang.org/grpc"
-
+	"BaoIM-Server/pkg/common/config"
+	util "BaoIM-Server/pkg/util/genutil"
 	"baoim/protocol/sdkws"
 	"baoim/protocol/user"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
 	"baoim/tools/utils"
-
-	"BaoIM-Server/pkg/common/config"
+	"google.golang.org/grpc"
 )
 
 // User represents a structure holding connection details for the User RPC client.
@@ -36,16 +34,17 @@ type User struct {
 	conn   grpc.ClientConnInterface
 	Client user.UserClient
 	Discov discoveryregistry.SvcDiscoveryRegistry
+	Config *config.GlobalConfig
 }
 
 // NewUser initializes and returns a User instance based on the provided service discovery registry.
-func NewUser(discov discoveryregistry.SvcDiscoveryRegistry) *User {
-	conn, err := discov.GetConn(context.Background(), config.Config.RpcRegisterName.OpenImUserName)
+func NewUser(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *User {
+	conn, err := discov.GetConn(context.Background(), config.RpcRegisterName.OpenImUserName)
 	if err != nil {
-		panic(err)
+		util.ExitWithError(err)
 	}
 	client := user.NewUserClient(conn)
-	return &User{Discov: discov, Client: client, conn: conn}
+	return &User{Discov: discov, Client: client, conn: conn, Config: config}
 }
 
 // UserRpcClient represents the structure for a User RPC client.
@@ -58,8 +57,8 @@ func NewUserRpcClientByUser(user *User) *UserRpcClient {
 }
 
 // NewUserRpcClient initializes a UserRpcClient based on the provided service discovery registry.
-func NewUserRpcClient(client discoveryregistry.SvcDiscoveryRegistry) UserRpcClient {
-	return UserRpcClient(*NewUser(client))
+func NewUserRpcClient(client discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) UserRpcClient {
+	return UserRpcClient(*NewUser(client, config))
 }
 
 // GetUsersInfo retrieves information for multiple users based on their user IDs.
@@ -162,7 +161,7 @@ func (u *UserRpcClient) Access(ctx context.Context, ownerUserID string) error {
 	if err != nil {
 		return err
 	}
-	return authverify.CheckAccessV3(ctx, ownerUserID)
+	return authverify.CheckAccessV3(ctx, ownerUserID, u.Config)
 }
 
 // GetAllUserIDs retrieves all user IDs with pagination options.

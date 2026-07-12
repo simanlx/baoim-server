@@ -20,6 +20,7 @@ import (
 
 	"baoim/protocol/constant"
 	"baoim/protocol/sdkws"
+	"baoim/tools/errs"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -52,6 +53,7 @@ func GetChatConversationIDByMsg(msg *sdkws.MsgData) string {
 	case constant.NotificationChatType:
 		return "sn_" + msg.SendID + "_" + msg.RecvID
 	}
+
 	return ""
 }
 
@@ -63,7 +65,11 @@ func GenConversationUniqueKey(msg *sdkws.MsgData) string {
 		return strings.Join(l, "_")
 	case constant.SuperGroupChatType:
 		return msg.GroupID
+	case constant.GroupChatType: ///增加 聊天室 测试
+		return msg.GroupID
+
 	}
+
 	return ""
 }
 
@@ -134,6 +140,8 @@ func GetNotificationConversationID(sessionType int, ids ...string) string {
 		return "n_" + strings.Join(ids, "_") // single chat
 	case constant.SuperGroupChatType:
 		return "n_" + ids[0] // super group chat
+	case constant.GroupChatType:
+		return "n_" + ids[0] // super group chat
 	}
 	return ""
 }
@@ -161,6 +169,11 @@ func ParseConversationID(msg *sdkws.MsgData) (isNotification bool, conversationI
 			return true, "n_" + msg.GroupID // super group chat
 		}
 		return false, "sg_" + msg.GroupID // super group chat
+	case constant.GroupChatType: //增加聊天室
+		if !options.IsNotNotification() {
+			return true, "n_" + msg.GroupID // super group chat
+		}
+		return false, "g_" + msg.GroupID // super group chat
 	case constant.NotificationChatType:
 		if !options.IsNotNotification() {
 			return true, "n_" + msg.SendID + "_" + msg.RecvID // super group chat
@@ -187,7 +200,7 @@ func (s MsgBySeq) Swap(i, j int) {
 func Pb2String(pb proto.Message) (string, error) {
 	s, err := proto.Marshal(pb)
 	if err != nil {
-		return "", err
+		return "", errs.Wrap(err)
 	}
 	return string(s), nil
 }

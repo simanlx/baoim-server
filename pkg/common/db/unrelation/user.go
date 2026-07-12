@@ -17,13 +17,11 @@ package unrelation
 import (
 	"context"
 
+	"BaoIM-Server/pkg/common/db/table/unrelation"
 	"baoim/tools/errs"
-	"baoim/tools/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"BaoIM-Server/pkg/common/db/table/unrelation"
 )
 
 // prefixes and suffixes.
@@ -65,7 +63,7 @@ func (u *UserMongoDriver) AddSubscriptionList(ctx context.Context, userID string
 	}
 	// iterate over aggregated results
 	for cursor.Next(ctx) {
-		err := cursor.Decode(&cnt)
+		err = cursor.Decode(&cnt)
 		if err != nil {
 			return errs.Wrap(err)
 		}
@@ -119,7 +117,7 @@ func (u *UserMongoDriver) AddSubscriptionList(ctx context.Context, userID string
 			opts,
 		)
 		if err != nil {
-			return utils.Wrap(err, "transaction failed")
+			return errs.Wrap(err, "transaction failed")
 		}
 	}
 	return nil

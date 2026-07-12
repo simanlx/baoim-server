@@ -18,13 +18,13 @@ import (
 	"context"
 	"time"
 
+	"BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/tools/errs"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-
-	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewGroupMongo(db *mongo.Database) (relation.GroupModelInterface, error) {
@@ -36,7 +36,7 @@ func NewGroupMongo(db *mongo.Database) (relation.GroupModelInterface, error) {
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
-		return nil, err
+		return nil, errs.Wrap(err)
 	}
 	return &GroupMgo{coll: coll}, nil
 }
@@ -47,6 +47,10 @@ type GroupMgo struct {
 
 func (g *GroupMgo) Create(ctx context.Context, groups []*relation.GroupModel) (err error) {
 	return mgoutil.InsertMany(ctx, g.coll, groups)
+}
+
+func (g *GroupMgo) DeleteOne(ctx context.Context, groupID string) (err error) {
+	return mgoutil.DeleteOne(ctx, g.coll, bson.M{"group_id": groupID})
 }
 
 func (g *GroupMgo) UpdateStatus(ctx context.Context, groupID string, status int32) (err error) {

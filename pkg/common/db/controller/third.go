@@ -18,10 +18,9 @@ import (
 	"context"
 	"time"
 
-	"baoim/tools/pagination"
-
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/db/table/relation"
+	"baoim/tools/pagination"
 )
 
 type ThirdDatabase interface {
@@ -32,6 +31,10 @@ type ThirdDatabase interface {
 	DeleteLogs(ctx context.Context, logID []string, userID string) error
 	SearchLogs(ctx context.Context, keyword string, start time.Time, end time.Time, pagination pagination.Pagination) (int64, []*relation.LogModel, error)
 	GetLogs(ctx context.Context, LogIDs []string, userID string) ([]*relation.LogModel, error)
+
+	////增加信令数据库
+	//GetSignalInvitationInfoByClientMsgID(ctx context.Context, clientMsgID string) (invitationInfo *rtc.SignalInviteReq, err error)
+	//GetAvailableSignalInvitationInfo(ctx context.Context, userID string) (invitationInfo *rtc.SignalInviteReq, err error)
 }
 
 type thirdDatabase struct {
@@ -63,13 +66,17 @@ func NewThirdDatabase(cache cache.MsgModel, logdb relation.LogInterface) ThirdDa
 	return &thirdDatabase{cache: cache, logdb: logdb}
 }
 
-func (t *thirdDatabase) FcmUpdateToken(
-	ctx context.Context,
-	account string,
-	platformID int,
-	fcmToken string,
-	expireTime int64,
-) error {
+//// /增加获取信令缓存
+//func (t *thirdDatabase) GetSignalInvitationInfoByClientMsgID(ctx context.Context, clientMsgID string) (invitationInfo *rtc.SignalInviteReq, err error) {
+//	return t.cache.GetSignalInvitationInfoByClientMsgID(ctx, clientMsgID)
+//}
+//
+//// /增加获取信令缓存
+//func (t *thirdDatabase) GetAvailableSignalInvitationInfo(ctx context.Context, userID string) (invitationInfo *rtc.SignalInviteReq, err error) {
+//	return t.cache.GetAvailableSignalInvitationInfo(ctx, userID)
+//}
+
+func (t *thirdDatabase) FcmUpdateToken(ctx context.Context, account string, platformID int, fcmToken string, expireTime int64) error {
 	return t.cache.SetFcmToken(ctx, account, platformID, fcmToken, expireTime)
 }
 

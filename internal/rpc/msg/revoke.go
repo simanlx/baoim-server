@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"BaoIM-Server/pkg/authverify"
-
+	unrelationtb "BaoIM-Server/pkg/common/db/table/unrelation"
 	"baoim/protocol/constant"
 	"baoim/protocol/msg"
 	"baoim/protocol/sdkws"
@@ -28,9 +28,6 @@ import (
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"baoim/tools/utils"
-
-	"BaoIM-Server/pkg/common/config"
-	unrelationtb "BaoIM-Server/pkg/common/db/table/unrelation"
 )
 
 func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.RevokeMsgResp, error) {
@@ -44,10 +41,10 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
 	if req.Seq < 0 {
 		return nil, errs.ErrArgs.Wrap("seq is invalid")
 	}
-	if err := authverify.CheckAccessV3(ctx, req.UserID); err != nil {
+	if err := authverify.CheckAccessV3(ctx, req.UserID, m.config); err != nil {
 		return nil, err
 	}
-	user, err := m.User.GetUserInfo(ctx, req.UserID)
+	user, err := m.UserLocalCache.GetUserInfo(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,20 +62,15 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
 	data, _ := json.Marshal(msgs[0])
 	log.ZInfo(ctx, "GetMsgBySeqs", "conversationID", req.ConversationID, "seq", req.Seq, "msg", string(data))
 	var role int32
-	if !authverify.IsAppManagerUid(ctx) {
+	if !authverify.IsAppManagerUid(ctx, m.config) {
 		switch msgs[0].SessionType {
 		case constant.SingleChatType:
-			if err := authverify.CheckAccessV3(ctx, msgs[0].SendID); err != nil {
+			if err := authverify.CheckAccessV3(ctx, msgs[0].SendID, m.config); err != nil {
 				return nil, err
 			}
 			role = user.AppMangerLevel
 		case constant.SuperGroupChatType:
-			members, err := m.Group.GetGroupMemberInfoMap(
-				ctx,
-				msgs[0].GroupID,
-				utils.Distinct([]string{req.UserID, msgs[0].SendID}),
-				true,
-			)
+			members, err := m.GroupLocalCache.GetGroupMemberInfoMap(ctx, msgs[0].GroupID, utils.Distinct([]string{req.UserID, msgs[0].SendID}))
 			if err != nil {
 				return nil, err
 			}
@@ -111,6 +103,13 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
 		return nil, err
 	}
 	revokerUserID := mcontext.GetOpUserID(ctx)
+	var flag bool
+	if len(m.config.Manager.UserID) > 0 {
+		flag = utils.Contain(revokerUserID, m.config.Manager.UserID...)
+	}
+	if len(m.config.Manager.UserID) == 0 && len(m.config.IMAdmin.UserID) > 0 {
+		flag = utils.Contain(revokerUserID, m.config.IMAdmin.UserID...)
+	}
 	tips := sdkws.RevokeMsgTips{
 		RevokerUserID:  revokerUserID,
 		ClientMsgID:    msgs[0].ClientMsgID,
@@ -118,7 +117,7 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
 		Seq:            req.Seq,
 		SesstionType:   msgs[0].SessionType,
 		ConversationID: req.ConversationID,
-		IsAdminRevoke:  utils.Contain(revokerUserID, config.Config.Manager.UserID...),
+		IsAdminRevoke:  flag,
 	}
 	var recvID string
 	if msgs[0].SessionType == constant.SuperGroupChatType {
@@ -129,7 +128,7 @@ func (m *msgServer) RevokeMsg(ctx context.Context, req *msg.RevokeMsgReq) (*msg.
 	if err := m.notificationSender.NotificationWithSesstionType(ctx, req.UserID, recvID, constant.MsgRevokeNotification, msgs[0].SessionType, &tips); err != nil {
 		return nil, err
 	}
-	if err = CallbackAfterRevokeMsg(ctx, req); err != nil {
+	if err = CallbackAfterRevokeMsg(ctx, m.config, req); err != nil {
 		return nil, err
 	}
 	return &msg.RevokeMsgResp{}, nil

@@ -17,17 +17,14 @@ package main
 import (
 	"BaoIM-Server/internal/rpc/msg"
 	"BaoIM-Server/pkg/common/cmd"
-	"BaoIM-Server/pkg/common/config"
+	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
-	rpcCmd := cmd.NewRpcCmd(cmd.RpcMsgServer)
+	rpcCmd := cmd.NewRpcCmd(cmd.RpcMsgServer, msg.Start)
 	rpcCmd.AddPortFlag()
 	rpcCmd.AddPrometheusPortFlag()
 	if err := rpcCmd.Exec(); err != nil {
-		panic(err.Error())
-	}
-	if err := rpcCmd.StartSvr(config.Config.RpcRegisterName.OpenImMsgName, msg.Start); err != nil {
-		panic(err.Error())
+		util.ExitWithError(err)
 	}
 }

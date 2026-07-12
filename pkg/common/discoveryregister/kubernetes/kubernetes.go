@@ -22,14 +22,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/stathat/consistent"
-
-	"google.golang.org/grpc"
-
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/log"
-
-	"BaoIM-Server/pkg/common/config"
+	"github.com/stathat/consistent"
+	"google.golang.org/grpc"
 )
 
 // K8sDR represents the Kubernetes service discovery and registration client.
@@ -37,11 +33,12 @@ type K8sDR struct {
 	options               []grpc.DialOption
 	rpcRegisterAddr       string
 	gatewayHostConsistent *consistent.Consistent
+	gatewayName           string
 }
 
-func NewK8sDiscoveryRegister() (discoveryregistry.SvcDiscoveryRegistry, error) {
+func NewK8sDiscoveryRegister(gatewayName string) (discoveryregistry.SvcDiscoveryRegistry, error) {
 	gatewayConsistent := consistent.New()
-	gatewayHosts := getMsgGatewayHost(context.Background())
+	gatewayHosts := getMsgGatewayHost(context.Background(), gatewayName)
 	for _, v := range gatewayHosts {
 		gatewayConsistent.Add(v)
 	}
@@ -49,10 +46,10 @@ func NewK8sDiscoveryRegister() (discoveryregistry.SvcDiscoveryRegistry, error) {
 }
 
 func (cli *K8sDR) Register(serviceName, host string, port int, opts ...grpc.DialOption) error {
-	if serviceName != config.Config.RpcRegisterName.OpenImMessageGatewayName {
+	if serviceName != cli.gatewayName {
 		cli.rpcRegisterAddr = serviceName
 	} else {
-		cli.rpcRegisterAddr = getSelfHost(context.Background())
+		cli.rpcRegisterAddr = getSelfHost(context.Background(), cli.gatewayName)
 	}
 
 	return nil
@@ -84,15 +81,15 @@ func (cli *K8sDR) GetUserIdHashGatewayHost(ctx context.Context, userId string) (
 	}
 	return host, err
 }
-func getSelfHost(ctx context.Context) string {
+func getSelfHost(ctx context.Context, gatewayName string) string {
 	port := 88
 	instance := "openimserver"
 	selfPodName := os.Getenv("MY_POD_NAME")
 	ns := os.Getenv("MY_POD_NAMESPACE")
 	statefuleIndex := 0
-	gatewayEnds := strings.Split(config.Config.RpcRegisterName.OpenImMessageGatewayName, ":")
+	gatewayEnds := strings.Split(gatewayName, ":")
 	if len(gatewayEnds) != 2 {
-		log.ZError(ctx, "msggateway RpcRegisterName is error:config.Config.RpcRegisterName.OpenImMessageGatewayName", errors.New("config error"))
+		log.ZError(ctx, "msggateway RpcRegisterName is error:config.RpcRegisterName.OpenImMessageGatewayName", errors.New("config error"))
 	} else {
 		port, _ = strconv.Atoi(gatewayEnds[1])
 	}
@@ -104,16 +101,16 @@ func getSelfHost(ctx context.Context) string {
 	return host
 }
 
-// like openimserver-openim-msggateway-0.openimserver-openim-msggateway-headless.openim-lin.svc.cluster.local:88
-func getMsgGatewayHost(ctx context.Context) []string {
+// like openimserver-openim-msggateway-0.openimserver-openim-msggateway-headless.openim-lin.svc.cluster.local:88.
+func getMsgGatewayHost(ctx context.Context, gatewayName string) []string {
 	port := 88
 	instance := "openimserver"
 	selfPodName := os.Getenv("MY_POD_NAME")
 	replicas := os.Getenv("MY_MSGGATEWAY_REPLICACOUNT")
 	ns := os.Getenv("MY_POD_NAMESPACE")
-	gatewayEnds := strings.Split(config.Config.RpcRegisterName.OpenImMessageGatewayName, ":")
+	gatewayEnds := strings.Split(gatewayName, ":")
 	if len(gatewayEnds) != 2 {
-		log.ZError(ctx, "msggateway RpcRegisterName is error:config.Config.RpcRegisterName.OpenImMessageGatewayName", errors.New("config error"))
+		log.ZError(ctx, "msggateway RpcRegisterName is error:config.RpcRegisterName.OpenImMessageGatewayName", errors.New("config error"))
 	} else {
 		port, _ = strconv.Atoi(gatewayEnds[1])
 	}
@@ -132,20 +129,40 @@ func getMsgGatewayHost(ctx context.Context) []string {
 // GetConns returns the gRPC client connections to the specified service.
 func (cli *K8sDR) GetConns(ctx context.Context, serviceName string, opts ...grpc.DialOption) ([]*grpc.ClientConn, error) {
 
-	if serviceName != config.Config.RpcRegisterName.OpenImMessageGatewayName {
+	// This conditional checks if the serviceName is not the OpenImMessageGatewayName.
+	// It seems to handle a special case for the OpenImMessageGateway.
+	if serviceName != cli.gatewayName {
+		// DialContext creates a client connection to the given target (serviceName) using the specified context.
+		// 'cli.options' are likely default or common options for all connections in this struct.
+		// 'opts...' allows for additional gRPC dial options to be passed and used.
 		conn, err := grpc.DialContext(ctx, serviceName, append(cli.options, opts...)...)
+
+		// The function returns a slice of client connections with the new connection, or an error if occurred.
 		return []*grpc.ClientConn{conn}, err
 	} else {
+		// This block is executed if the serviceName is OpenImMessageGatewayName.
+		// 'ret' will accumulate the connections to return.
 		var ret []*grpc.ClientConn
-		gatewayHosts := getMsgGatewayHost(ctx)
+
+		// getMsgGatewayHost presumably retrieves hosts for the message gateway service.
+		// The context is passed, likely for cancellation and timeout control.
+		gatewayHosts := getMsgGatewayHost(ctx, cli.gatewayName)
+
+		// Iterating over the retrieved gateway hosts.
 		for _, host := range gatewayHosts {
+			// Establishes a connection to each host.
+			// Again, appending cli.options with any additional opts provided.
 			conn, err := grpc.DialContext(ctx, host, append(cli.options, opts...)...)
+
+			// If there's an error while dialing any host, the function returns immediately with the error.
 			if err != nil {
 				return nil, err
 			} else {
+				// If the connection is successful, it is added to the 'ret' slice.
 				ret = append(ret, conn)
 			}
 		}
+		// After all hosts are processed, the slice of connections is returned.
 		return ret, nil
 	}
 }
@@ -168,11 +185,11 @@ func (cli *K8sDR) CloseConn(conn *grpc.ClientConn) {
 	conn.Close()
 }
 
-// do not use this method for call rpc
+// do not use this method for call rpc.
 func (cli *K8sDR) GetClientLocalConns() map[string][]*grpc.ClientConn {
 	fmt.Println("should not call this function!!!!!!!!!!!!!!!!!!!!!!!!!")
 	return nil
 }
 func (cli *K8sDR) Close() {
-	return
+
 }

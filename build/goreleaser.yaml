@@ -224,7 +224,23 @@ builds:
     goarm:
       - "6"
       - "7"
-
+  - binary: openim-rpc-room
+    id: openim-rpc-room
+    main: ./cmd/openim-rpc/openim-rpc-room/main.go
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - s390x
+      - mips64
+      - mips64le
+      - amd64
+      - ppc64le
+      - arm64
+    goarm:
+      - "6"
+      - "7"
   - binary: openim-rpc-msg
     id: openim-rpc-msg
     main: ./cmd/openim-rpc/openim-rpc-msg/main.go
@@ -451,6 +467,7 @@ nfpms:
       - openim-rpc-group
       - openim-rpc-msg
       - openim-rpc-third
+      - openim-rpc-room
       - openim-rpc-user
     # Your app's vendor.
     vendor: OpenIMSDK

@@ -19,12 +19,10 @@ import (
 	"time"
 
 	"BaoIM-Server/pkg/authverify"
-
-	pbfriend "baoim/protocol/friend"
-	"baoim/tools/mcontext"
-
 	"BaoIM-Server/pkg/common/convert"
 	"BaoIM-Server/pkg/common/db/table/relation"
+	pbfriend "baoim/protocol/friend"
+	"baoim/tools/mcontext"
 )
 
 func (s *friendServer) GetPaginationBlacks(ctx context.Context, req *pbfriend.GetPaginationBlacksReq) (resp *pbfriend.GetPaginationBlacksResp, err error) {
@@ -67,7 +65,7 @@ func (s *friendServer) RemoveBlack(ctx context.Context, req *pbfriend.RemoveBlac
 }
 
 func (s *friendServer) AddBlack(ctx context.Context, req *pbfriend.AddBlackReq) (*pbfriend.AddBlackResp, error) {
-	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID); err != nil {
+	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config); err != nil {
 		return nil, err
 	}
 	_, err := s.userRpcClient.GetUsersInfo(ctx, []string{req.OwnerUserID, req.BlackUserID})

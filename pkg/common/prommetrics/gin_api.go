@@ -14,14 +14,14 @@
 
 package prommetrics
 
-import ginProm "BaoIM-Server/pkg/common/ginprometheus"
+import ginprom "BaoIM-Server/pkg/common/ginprometheus"
 
 /*
 labels := prometheus.Labels{"label_one": "any", "label_two": "value"}
 ApiCustomCnt.MetricCollector.(*prometheus.CounterVec).With(labels).Inc().
 */
 var (
-	ApiCustomCnt = &ginProm.Metric{
+	ApiCustomCnt = &ginprom.Metric{
 		Name:        "custom_total",
 		Description: "Custom counter events.",
 		Type:        "counter_vec",

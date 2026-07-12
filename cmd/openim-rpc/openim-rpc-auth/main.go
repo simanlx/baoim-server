@@ -17,17 +17,14 @@ package main
 import (
 	"BaoIM-Server/internal/rpc/auth"
 	"BaoIM-Server/pkg/common/cmd"
-	"BaoIM-Server/pkg/common/config"
+	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
-	authCmd := cmd.NewRpcCmd(cmd.RpcAuthServer)
+	authCmd := cmd.NewRpcCmd(cmd.RpcAuthServer, auth.Start)
 	authCmd.AddPortFlag()
 	authCmd.AddPrometheusPortFlag()
 	if err := authCmd.Exec(); err != nil {
-		panic(err.Error())
-	}
-	if err := authCmd.StartSvr(config.Config.RpcRegisterName.OpenImAuthName, auth.Start); err != nil {
-		panic(err.Error())
+		util.ExitWithError(err)
 	}
 }

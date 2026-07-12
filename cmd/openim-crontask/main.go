@@ -15,13 +15,13 @@
 package main
 
 import (
-	"BaoIM-Server/internal/tools"
 	"BaoIM-Server/pkg/common/cmd"
+	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
 	cronTaskCmd := cmd.NewCronTaskCmd()
-	if err := cronTaskCmd.Exec(tools.StartTask); err != nil {
-		panic(err.Error())
+	if err := cronTaskCmd.Exec(); err != nil {
+		util.ExitWithError(err)
 	}
 }

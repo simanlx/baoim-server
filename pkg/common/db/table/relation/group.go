@@ -39,15 +39,26 @@ type GroupModel struct {
 	NotificationUserID     string    `bson:"notification_user_id"`
 }
 
+//// /增加 聊天室房间模型
+//type RoomModel struct {
+//	RoomID string `bson:"room_id"`
+//	Name   string `bson:"name"`
+//	Img    string `bson:"img"`
+//	Num    int32  `bson:"num"`
+//	Score  int64  `bson:"score"`
+//	//CreateTime             time.Time `bson:"create_time"`
+//}
+
 type GroupModelInterface interface {
 	Create(ctx context.Context, groups []*GroupModel) (err error)
+	DeleteOne(ctx context.Context, groupID string) (err error)
 	UpdateMap(ctx context.Context, groupID string, args map[string]any) (err error)
 	UpdateStatus(ctx context.Context, groupID string, status int32) (err error)
 	Find(ctx context.Context, groupIDs []string) (groups []*GroupModel, err error)
 	Take(ctx context.Context, groupID string) (group *GroupModel, err error)
 	Search(ctx context.Context, keyword string, pagination pagination.Pagination) (total int64, groups []*GroupModel, err error)
-	// 获取群总数
+	// Get Group total quantity
 	CountTotal(ctx context.Context, before *time.Time) (count int64, err error)
-	// 获取范围内群增量
+	// Get Group total quantity every day
 	CountRangeEverydayTotal(ctx context.Context, start time.Time, end time.Time) (map[string]int64, error)
 }

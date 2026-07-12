@@ -18,16 +18,14 @@ import (
 	"context"
 	"path/filepath"
 
+	"BaoIM-Server/internal/push/offlinepush"
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
+	"baoim/protocol/constant"
 	firebase "firebase.google.com/go"
 	"firebase.google.com/go/messaging"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/api/option"
-
-	"baoim/protocol/constant"
-
-	"BaoIM-Server/internal/push/offlinepush"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
 )
 
 const SinglePushCountLimit = 400
@@ -39,20 +37,22 @@ type Fcm struct {
 	cache     cache.MsgModel
 }
 
-func NewClient(cache cache.MsgModel) *Fcm {
+// NewClient initializes a new FCM client using the Firebase Admin SDK.
+// It requires the FCM service account credentials file located within the project's configuration directory.
+func NewClient(globalConfig *config.GlobalConfig, cache cache.MsgModel) *Fcm {
 	projectRoot := config.GetProjectRoot()
-	credentialsFilePath := filepath.Join(projectRoot, "config", config.Config.Push.Fcm.ServiceAccount)
+	credentialsFilePath := filepath.Join(projectRoot, "config", globalConfig.Push.Fcm.ServiceAccount)
 	opt := option.WithCredentialsFile(credentialsFilePath)
 	fcmApp, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
 		return nil
 	}
-
 	ctx := context.Background()
 	fcmMsgClient, err := fcmApp.Messaging(ctx)
 	if err != nil {
 		return nil
 	}
+
 	return &Fcm{fcmMsgCli: fcmMsgClient, cache: cache}
 }
 
@@ -125,7 +125,6 @@ func (f *Fcm) Push(ctx context.Context, userIDs []string, title, content string,
 		response, err := f.fcmMsgCli.SendAll(ctx, messages)
 		if err != nil {
 			Fail = Fail + messageCount
-			// log.Info(operationID, "some token push err", err.Error(), messageCount)
 		} else {
 			Success = Success + response.SuccessCount
 			Fail = Fail + response.FailureCount

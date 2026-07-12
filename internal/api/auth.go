@@ -15,12 +15,10 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
-
+	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/auth"
 	"baoim/tools/a2r"
-
-	"BaoIM-Server/pkg/rpcclient"
+	"github.com/gin-gonic/gin"
 )
 
 type AuthApi rpcclient.Auth
@@ -31,6 +29,10 @@ func NewAuthApi(client rpcclient.Auth) AuthApi {
 
 func (o *AuthApi) UserToken(c *gin.Context) {
 	a2r.Call(auth.AuthClient.UserToken, o.Client, c)
+}
+
+func (o *AuthApi) GetUserToken(c *gin.Context) {
+	a2r.Call(auth.AuthClient.GetUserToken, o.Client, c)
 }
 
 func (o *AuthApi) ParseToken(c *gin.Context) {

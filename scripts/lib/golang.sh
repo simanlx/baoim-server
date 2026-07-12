@@ -77,20 +77,73 @@ openim::golang::server_targets() {
     openim-rpc-conversation
     openim-rpc-friend
     openim-rpc-group
+    openim-rpc-room
     openim-rpc-msg
     openim-rpc-third
     openim-rpc-user
-    openim-rpc-encryption
   )
   echo "${targets[@]}"
 }
+
+openim::golang::server_targets_no_transfer() {
+  local targets=(
+    openim-api
+    openim-crontask
+    openim-msggateway
+    openim-push
+    openim-rpc-auth
+    openim-rpc-conversation
+    openim-rpc-friend
+    openim-rpc-group
+    openim-rpc-room
+    openim-rpc-msg
+    openim-rpc-third
+    openim-rpc-user
+  )
+  echo "${targets[@]}"
+}
+
+openim::golang::server_targets_no_cmdutils() {
+  local targets=(
+    openim-api
+    openim-crontask
+    openim-msggateway
+    openim-msgtransfer
+    openim-push
+    openim-rpc-auth
+    openim-rpc-conversation
+    openim-rpc-friend
+    openim-rpc-group
+     openim-rpc-room
+    openim-rpc-msg
+    openim-rpc-third
+    openim-rpc-user
+  )
+  echo "${targets[@]}"
+}
+
+
+IFS=" " read -ra OPENIM_SERVER_TARGETS_NO_CMDUTILS <<< "$(openim::golang::server_targets_no_cmdutils)"
+readonly OPENIM_SERVER_TARGETS_NO_CMDUTILS
+readonly OPENIM_SERVER_BINARIES_NO_CMDUTILS=("${OPENIM_SERVER_TARGETS_NO_CMDUTILS[@]##*/}")
+
+
+
+
+
+IFS=" " read -ra OPENIM_SERVER_TARGETS_NO_TRANSFER <<< "$(openim::golang::server_targets_no_transfer)"
+readonly OPENIM_SERVER_TARGETS_NO_TRANSFER
+readonly OPENIM_SERVER_BINARIES_NO_TRANSFER=("${OPENIM_SERVER_TARGETS_NO_TRANSFER[@]##*/}")
+
+
+
 
 IFS=" " read -ra OPENIM_SERVER_TARGETS <<< "$(openim::golang::server_targets)"
 readonly OPENIM_SERVER_TARGETS
 readonly OPENIM_SERVER_BINARIES=("${OPENIM_SERVER_TARGETS[@]##*/}")
 
 # TODO: Label
-START_SCRIPTS_PATH=""${OPENIM_ROOT}"/scripts/install/"
+START_SCRIPTS_PATH="${OPENIM_ROOT}/scripts/install/"
 openim::golang::start_script_list() {
   local targets=(
       openim-api.sh
@@ -151,6 +204,7 @@ readonly OPENIM_TOOLS_TARGETS
 readonly OPENIM_TOOLS_BINARIES=("${OPENIM_TOOLS_TARGETS[@]##*/}")
 
 # The set of server targets we build docker images for
+#我们为其构建docker镜像的服务器目标集
 openim::golang::server_image_targets() {
   # NOTE: this contains cmd targets for openim::build::get_docker_wrapped_binaries
   local targets=(
@@ -164,6 +218,7 @@ openim::golang::server_image_targets() {
     cmd/openim-rpc-conversation
     cmd/openim-rpc-friend
     cmd/openim-rpc-group
+    cmd/openim-rpc-room
     cmd/openim-rpc-msg
     cmd/openim-rpc-third
     cmd/openim-rpc-user
@@ -262,7 +317,18 @@ openim::golang::setup_platforms
 # The set of client targets that we are building for all platforms
 # If you update this list, please also update build/BUILD.
 readonly OPENIM_CLIENT_TARGETS=(
-  imctl
+    changelog
+    component
+    conversion-msg
+    conversion-mysql
+    formitychecker
+    imctl
+    infra
+    ncpu
+    openim-web
+    up35
+    versionchecker
+    yamlfmt
 )
 readonly OPENIM_CLIENT_BINARIES=("${OPENIM_CLIENT_TARGETS[@]##*/}")
 

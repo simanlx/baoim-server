@@ -16,6 +16,7 @@ package main
 
 import (
 	"BaoIM-Server/pkg/common/cmd"
+	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
@@ -23,6 +24,6 @@ func main() {
 	msgTransferCmd.AddPrometheusPortFlag()
 	msgTransferCmd.AddTransferProgressFlag()
 	if err := msgTransferCmd.Exec(); err != nil {
-		panic(err.Error())
+		util.ExitWithError(err)
 	}
 }

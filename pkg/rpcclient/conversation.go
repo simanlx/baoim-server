@@ -18,34 +18,34 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/grpc"
-
+	"BaoIM-Server/pkg/common/config"
+	util "BaoIM-Server/pkg/util/genutil"
 	pbconversation "baoim/protocol/conversation"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
-
-	"BaoIM-Server/pkg/common/config"
+	"google.golang.org/grpc"
 )
 
 type Conversation struct {
 	Client pbconversation.ConversationClient
 	conn   grpc.ClientConnInterface
 	discov discoveryregistry.SvcDiscoveryRegistry
+	Config *config.GlobalConfig
 }
 
-func NewConversation(discov discoveryregistry.SvcDiscoveryRegistry) *Conversation {
-	conn, err := discov.GetConn(context.Background(), config.Config.RpcRegisterName.OpenImConversationName)
+func NewConversation(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *Conversation {
+	conn, err := discov.GetConn(context.Background(), config.RpcRegisterName.OpenImConversationName)
 	if err != nil {
-		panic(err)
+		util.ExitWithError(err)
 	}
 	client := pbconversation.NewConversationClient(conn)
-	return &Conversation{discov: discov, conn: conn, Client: client}
+	return &Conversation{discov: discov, conn: conn, Client: client, Config: config}
 }
 
 type ConversationRpcClient Conversation
 
-func NewConversationRpcClient(discov discoveryregistry.SvcDiscoveryRegistry) ConversationRpcClient {
-	return ConversationRpcClient(*NewConversation(discov))
+func NewConversationRpcClient(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) ConversationRpcClient {
+	return ConversationRpcClient(*NewConversation(discov, config))
 }
 
 func (c *ConversationRpcClient) GetSingleConversationRecvMsgOpt(ctx context.Context, userID, conversationID string) (int32, error) {
@@ -66,6 +66,24 @@ func (c *ConversationRpcClient) SingleChatFirstCreateConversation(ctx context.Co
 			RecvID: recvID, SendID: sendID, ConversationID: conversationID,
 			ConversationType: conversationType,
 		})
+	return err
+}
+
+// 解散聊天室时删除所有会话
+func (c *ConversationRpcClient) DismissRoomDeleteConversation(ctx context.Context, roomID string, userIDs []string) error {
+	_, err := c.Client.DismissRoomDeleteConversation(ctx, &pbconversation.DismissRoomDeleteConversationReq{RoomID: roomID, UserIDs: userIDs})
+	return err
+}
+
+// 删除用户聊天室会话
+func (c *ConversationRpcClient) DeleteUserRoomConversation(ctx context.Context, roomID string, userID string) error {
+	_, err := c.Client.DeleteUserRoomConversation(ctx, &pbconversation.DeleteUserRoomConversationReq{RoomID: roomID, UserID: userID})
+	return err
+}
+
+// /增加 聊天室首次创建  会话
+func (c *ConversationRpcClient) RoomGroupChatFirstCreateConversation(ctx context.Context, groupID string, userIDs []string) error {
+	_, err := c.Client.RoomCreateGroupChatConversations(ctx, &pbconversation.CreateGroupChatConversationsReq{UserIDs: userIDs, GroupID: groupID})
 	return err
 }
 
@@ -114,11 +132,15 @@ func (c *ConversationRpcClient) GetConversationsByConversationID(ctx context.Con
 	return resp.Conversations, nil
 }
 
-func (c *ConversationRpcClient) GetConversations(
-	ctx context.Context,
-	ownerUserID string,
-	conversationIDs []string,
-) ([]*pbconversation.Conversation, error) {
+func (c *ConversationRpcClient) GetConversationOfflinePushUserIDs(ctx context.Context, conversationID string, userIDs []string) ([]string, error) {
+	resp, err := c.Client.GetConversationOfflinePushUserIDs(ctx, &pbconversation.GetConversationOfflinePushUserIDsReq{ConversationID: conversationID, UserIDs: userIDs})
+	if err != nil {
+		return nil, err
+	}
+	return resp.UserIDs, nil
+}
+
+func (c *ConversationRpcClient) GetConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*pbconversation.Conversation, error) {
 	if len(conversationIDs) == 0 {
 		return nil, nil
 	}
@@ -130,4 +152,12 @@ func (c *ConversationRpcClient) GetConversations(
 		return nil, err
 	}
 	return resp.Conversations, nil
+}
+
+func (c *ConversationRpcClient) GetConversationNotReceiveMessageUserIDs(ctx context.Context, conversationID string) ([]string, error) {
+	resp, err := c.Client.GetConversationNotReceiveMessageUserIDs(ctx, &pbconversation.GetConversationNotReceiveMessageUserIDsReq{ConversationID: conversationID})
+	if err != nil {
+		return nil, err
+	}
+	return resp.UserIDs, nil
 }

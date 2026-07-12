@@ -19,28 +19,24 @@ import (
 	"errors"
 	"sort"
 
-	"baoim/protocol/sdkws"
-
-	"baoim/tools/tx"
-
-	"BaoIM-Server/pkg/common/db/mgo"
-	"BaoIM-Server/pkg/common/db/unrelation"
-
-	"google.golang.org/grpc"
-
-	"baoim/protocol/constant"
-	pbconversation "baoim/protocol/conversation"
-	"baoim/tools/discoveryregistry"
-	"baoim/tools/errs"
-	"baoim/tools/log"
-	"baoim/tools/utils"
-
+	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/convert"
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/common/db/mgo"
 	tablerelation "BaoIM-Server/pkg/common/db/table/relation"
+	"BaoIM-Server/pkg/common/db/unrelation"
 	"BaoIM-Server/pkg/rpcclient"
 	"BaoIM-Server/pkg/rpcclient/notification"
+	"baoim/protocol/constant"
+	pbconversation "baoim/protocol/conversation"
+	"baoim/protocol/sdkws"
+	"baoim/tools/discoveryregistry"
+	"baoim/tools/errs"
+	"baoim/tools/log"
+	"baoim/tools/tx"
+	"baoim/tools/utils"
+	"google.golang.org/grpc"
 )
 
 type conversationServer struct {
@@ -49,30 +45,32 @@ type conversationServer struct {
 	groupRpcClient                 *rpcclient.GroupRpcClient
 	conversationDatabase           controller.ConversationDatabase
 	conversationNotificationSender *notification.ConversationNotificationSender
+	config                         *config.GlobalConfig
 }
 
-func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	rdb, err := cache.NewRedis()
+func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	rdb, err := cache.NewRedis(config)
 	if err != nil {
 		return err
 	}
-	mongo, err := unrelation.NewMongo()
+	mongo, err := unrelation.NewMongo(config)
 	if err != nil {
 		return err
 	}
-	conversationDB, err := mgo.NewConversationMongo(mongo.GetDatabase())
+	conversationDB, err := mgo.NewConversationMongo(mongo.GetDatabase(config.Mongo.Database))
 	if err != nil {
 		return err
 	}
-	groupRpcClient := rpcclient.NewGroupRpcClient(client)
-	msgRpcClient := rpcclient.NewMessageRpcClient(client)
-	userRpcClient := rpcclient.NewUserRpcClient(client)
+	groupRpcClient := rpcclient.NewGroupRpcClient(client, config)
+	msgRpcClient := rpcclient.NewMessageRpcClient(client, config)
+	userRpcClient := rpcclient.NewUserRpcClient(client, config)
 	pbconversation.RegisterConversationServer(server, &conversationServer{
 		msgRpcClient:                   &msgRpcClient,
 		user:                           &userRpcClient,
-		conversationNotificationSender: notification.NewConversationNotificationSender(&msgRpcClient),
+		conversationNotificationSender: notification.NewConversationNotificationSender(config, &msgRpcClient),
 		groupRpcClient:                 &groupRpcClient,
 		conversationDatabase:           controller.NewConversationDatabase(conversationDB, cache.NewConversationRedis(rdb, cache.GetDefaultOpt(), conversationDB), tx.NewMongo(mongo.GetClient())),
+		config:                         config,
 	})
 	return nil
 }
@@ -90,11 +88,11 @@ func (c *conversationServer) GetConversation(ctx context.Context, req *pbconvers
 	return resp, nil
 }
 
-func (m *conversationServer) GetConversationList(ctx context.Context, req *pbconversation.GetConversationListReq) (resp *pbconversation.GetConversationListResp, err error) {
-	log.ZDebug(ctx, "GetConversationList", "seqs", req, "userID", req.UserID)
+func (c *conversationServer) GetSortedConversationList(ctx context.Context, req *pbconversation.GetSortedConversationListReq) (resp *pbconversation.GetSortedConversationListResp, err error) {
+	log.ZDebug(ctx, "GetSortedConversationList", "seqs", req, "userID", req.UserID)
 	var conversationIDs []string
 	if len(req.ConversationIDs) == 0 {
-		conversationIDs, err = m.conversationDatabase.GetConversationIDs(ctx, req.UserID)
+		conversationIDs, err = c.conversationDatabase.GetConversationIDs(ctx, req.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +100,7 @@ func (m *conversationServer) GetConversationList(ctx context.Context, req *pbcon
 		conversationIDs = req.ConversationIDs
 	}
 
-	conversations, err := m.conversationDatabase.FindConversations(ctx, req.UserID, conversationIDs)
+	conversations, err := c.conversationDatabase.FindConversations(ctx, req.UserID, conversationIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -110,50 +108,57 @@ func (m *conversationServer) GetConversationList(ctx context.Context, req *pbcon
 		return nil, errs.ErrRecordNotFound.Wrap()
 	}
 
-	maxSeqs, err := m.msgRpcClient.GetMaxSeqs(ctx, conversationIDs)
+	maxSeqs, err := c.msgRpcClient.GetMaxSeqs(ctx, conversationIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	chatLogs, err := m.msgRpcClient.GetMsgByConversationIDs(ctx, conversationIDs, maxSeqs)
+	chatLogs, err := c.msgRpcClient.GetMsgByConversationIDs(ctx, conversationIDs, maxSeqs)
 	if err != nil {
 		return nil, err
 	}
 
-	conversationMsg, err := m.getConversationInfo(ctx, chatLogs, req.UserID)
+	conversationMsg, err := c.getConversationInfo(ctx, chatLogs, req.UserID)
 	if err != nil {
 		return nil, err
 	}
 
-	hasReadSeqs, err := m.msgRpcClient.GetHasReadSeqs(ctx, req.UserID, conversationIDs)
+	hasReadSeqs, err := c.msgRpcClient.GetHasReadSeqs(ctx, req.UserID, conversationIDs)
 	if err != nil {
 		return nil, err
 	}
 
+	var unreadTotal int64
 	conversation_unreadCount := make(map[string]int64)
 	for conversationID, maxSeq := range maxSeqs {
-		conversation_unreadCount[conversationID] = maxSeq - hasReadSeqs[conversationID]
+		unreadCount := maxSeq - hasReadSeqs[conversationID]
+		conversation_unreadCount[conversationID] = unreadCount
+		unreadTotal += unreadCount
 	}
 
-	conversation_isPinkTime := make(map[int64]string)
-	conversation_notPinkTime := make(map[int64]string)
+	conversation_isPinTime := make(map[int64]string)
+	conversation_notPinTime := make(map[int64]string)
 	for _, v := range conversations {
 		conversationID := v.ConversationID
 		time := conversationMsg[conversationID].MsgInfo.LatestMsgRecvTime
 		conversationMsg[conversationID].RecvMsgOpt = v.RecvMsgOpt
 		if v.IsPinned {
 			conversationMsg[conversationID].IsPinned = v.IsPinned
-			conversation_isPinkTime[time] = conversationID
+			conversation_isPinTime[time] = conversationID
 			continue
 		}
-		conversation_notPinkTime[time] = conversationID
+		conversation_notPinTime[time] = conversationID
 	}
-	resp = &pbconversation.GetConversationListResp{
+	resp = &pbconversation.GetSortedConversationListResp{
+		ConversationTotal: int64(len(chatLogs)),
 		ConversationElems: []*pbconversation.ConversationElem{},
+		UnreadTotal:       unreadTotal,
 	}
 
-	m.conversationSort(conversation_isPinkTime, resp, conversation_unreadCount, conversationMsg)
-	m.conversationSort(conversation_notPinkTime, resp, conversation_unreadCount, conversationMsg)
+	c.conversationSort(conversation_isPinTime, resp, conversation_unreadCount, conversationMsg)
+	c.conversationSort(conversation_notPinTime, resp, conversation_unreadCount, conversationMsg)
+
+	resp.ConversationElems = utils.Paginate(resp.ConversationElems, int(req.Pagination.GetPageNumber()), int(req.Pagination.GetShowNumber()))
 	return resp, nil
 }
 
@@ -295,7 +300,7 @@ func (c *conversationServer) SetConversations(ctx context.Context,
 			unequal++
 		}
 	}
-	if err := c.conversationDatabase.SetUsersConversationFiledTx(ctx, req.UserIDs, &conversation, m); err != nil {
+	if err := c.conversationDatabase.SetUsersConversationFieldTx(ctx, req.UserIDs, &conversation, m); err != nil {
 		return nil, err
 	}
 	if unequal > 0 {
@@ -306,7 +311,7 @@ func (c *conversationServer) SetConversations(ctx context.Context,
 	return &pbconversation.SetConversationsResp{}, nil
 }
 
-// 获取超级大群开启免打扰的用户ID.
+// Get user IDs with "Do Not Disturb" enabled in super large groups.
 func (c *conversationServer) GetRecvMsgNotNotifyUserIDs(ctx context.Context, req *pbconversation.GetRecvMsgNotNotifyUserIDsReq) (*pbconversation.GetRecvMsgNotNotifyUserIDsResp, error) {
 	//userIDs, err := c.conversationDatabase.FindRecvMsgNotNotifyUserIDs(ctx, req.GroupID)
 	//if err != nil {
@@ -362,8 +367,35 @@ func (c *conversationServer) CreateGroupChatConversations(ctx context.Context, r
 	return &pbconversation.CreateGroupChatConversationsResp{}, nil
 }
 
+// DismissRoomDeleteConversation  解散聊天室时延时在mdb中删除会话 及所有用户会话缓存
+func (c *conversationServer) DismissRoomDeleteConversation(ctx context.Context, req *pbconversation.DismissRoomDeleteConversationReq) (*pbconversation.DismissRoomDeleteConversationResp, error) {
+	err := c.conversationDatabase.DeleteRoomAllConversation(ctx, req.RoomID, req.UserIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.DismissRoomDeleteConversationResp{}, nil
+}
+
+func (c *conversationServer) DeleteUserRoomConversation(ctx context.Context, req *pbconversation.DeleteUserRoomConversationReq) (*pbconversation.DeleteUserRoomConversationResp, error) {
+	err := c.conversationDatabase.DeleteUserRoomConversation(ctx, req.UserID, req.RoomID)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.DeleteUserRoomConversationResp{}, nil
+}
+
+// 增加 聊天室 创建会话列表  测试
+func (c *conversationServer) RoomCreateGroupChatConversations(ctx context.Context, req *pbconversation.CreateGroupChatConversationsReq) (*pbconversation.CreateGroupChatConversationsResp, error) {
+	err := c.conversationDatabase.RoomCreateGroupChatConversation(ctx, req.GroupID, req.UserIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.CreateGroupChatConversationsResp{}, nil
+}
+
 func (c *conversationServer) SetConversationMaxSeq(ctx context.Context, req *pbconversation.SetConversationMaxSeqReq) (*pbconversation.SetConversationMaxSeqResp, error) {
-	if err := c.conversationDatabase.UpdateUsersConversationFiled(ctx, req.OwnerUserID, req.ConversationID,
+
+	if err := c.conversationDatabase.UpdateUsersConversationField(ctx, req.OwnerUserID, req.ConversationID,
 		map[string]any{"max_seq": req.MaxSeq}); err != nil {
 		return nil, err
 	}
@@ -426,7 +458,7 @@ func (c *conversationServer) GetConversationOfflinePushUserIDs(
 
 func (c *conversationServer) conversationSort(
 	conversations map[int64]string,
-	resp *pbconversation.GetConversationListResp,
+	resp *pbconversation.GetSortedConversationListResp,
 	conversation_unreadCount map[string]int64,
 	conversationMsg map[string]*pbconversation.ConversationElem,
 ) {
@@ -501,19 +533,27 @@ func (c *conversationServer) getConversationInfo(
 		switch chatLog.SessionType {
 		case constant.SingleChatType:
 			if chatLog.SendID == userID {
-				msgInfo.FaceURL = sendMap[chatLog.RecvID].FaceURL
-				msgInfo.SenderName = sendMap[chatLog.RecvID].Nickname
+				if recv, ok := sendMap[chatLog.RecvID]; ok {
+					msgInfo.FaceURL = recv.FaceURL
+					msgInfo.SenderName = recv.Nickname
+				}
 				break
 			}
-			msgInfo.FaceURL = sendMap[chatLog.SendID].FaceURL
-			msgInfo.SenderName = sendMap[chatLog.SendID].Nickname
+			if send, ok := sendMap[chatLog.SendID]; ok {
+				msgInfo.FaceURL = send.FaceURL
+				msgInfo.SenderName = send.Nickname
+			}
 		case constant.GroupChatType, constant.SuperGroupChatType:
-			msgInfo.GroupName = groupMap[chatLog.GroupID].GroupName
-			msgInfo.GroupFaceURL = groupMap[chatLog.GroupID].FaceURL
-			msgInfo.GroupMemberCount = groupMap[chatLog.GroupID].MemberCount
 			msgInfo.GroupID = chatLog.GroupID
-			msgInfo.GroupType = groupMap[chatLog.GroupID].GroupType
-			msgInfo.SenderName = sendMap[chatLog.SendID].Nickname
+			if group, ok := groupMap[chatLog.GroupID]; ok {
+				msgInfo.GroupName = group.GroupName
+				msgInfo.GroupFaceURL = group.FaceURL
+				msgInfo.GroupMemberCount = group.MemberCount
+				msgInfo.GroupType = group.GroupType
+			}
+			if send, ok := sendMap[chatLog.SendID]; ok {
+				msgInfo.SenderName = send.Nickname
+			}
 		}
 		pbchatLog.ConversationID = conversationID
 		msgInfo.LatestMsgRecvTime = chatLog.SendTime
@@ -521,4 +561,12 @@ func (c *conversationServer) getConversationInfo(
 		conversationMsg[conversationID] = pbchatLog
 	}
 	return conversationMsg, nil
+}
+
+func (c *conversationServer) GetConversationNotReceiveMessageUserIDs(ctx context.Context, req *pbconversation.GetConversationNotReceiveMessageUserIDsReq) (*pbconversation.GetConversationNotReceiveMessageUserIDsResp, error) {
+	userIDs, err := c.conversationDatabase.GetConversationNotReceiveMessageUserIDs(ctx, req.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	return &pbconversation.GetConversationNotReceiveMessageUserIDsResp{UserIDs: userIDs}, nil
 }
