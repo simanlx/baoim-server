@@ -33,28 +33,27 @@ import (
 )
 
 func Test_BatchInsertChat2DB(t *testing.T) {
-	conf := config.NewGlobalConfig()
-	conf.Mongo.Address = []string{"192.168.44.128:37017"}
-	// conf.Mongo.Timeout = 60
-	conf.Mongo.Database = "openIM"
-	// conf.Mongo.Source = "admin"
-	conf.Mongo.Username = "root"
-	conf.Mongo.Password = "openIM123"
-	conf.Mongo.MaxPoolSize = 100
-	conf.RetainChatRecords = 3650
-	conf.ChatRecordsClearTime = "0 2 * * 3"
+	config.Config.Mongo.Address = []string{"192.168.44.128:37017"}
+	// config.Config.Mongo.Timeout = 60
+	config.Config.Mongo.Database = "openIM"
+	// config.Config.Mongo.Source = "admin"
+	config.Config.Mongo.Username = "root"
+	config.Config.Mongo.Password = "openIM123"
+	config.Config.Mongo.MaxPoolSize = 100
+	config.Config.RetainChatRecords = 3650
+	config.Config.ChatRecordsClearTime = "0 2 * * 3"
 
-	mongo, err := unrelation.NewMongo(conf)
+	mongo, err := unrelation.NewMongo()
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mongo.GetDatabase(conf.Mongo.Database).Client().Ping(context.Background(), nil)
+	err = mongo.GetDatabase().Client().Ping(context.Background(), nil)
 	if err != nil {
 		panic(err)
 	}
 
 	db := &commonMsgDatabase{
-		msgDocDatabase: unrelation.NewMsgMongoDriver(mongo.GetDatabase(conf.Mongo.Database)),
+		msgDocDatabase: unrelation.NewMsgMongoDriver(mongo.GetDatabase()),
 	}
 
 	//ctx := context.Background()
@@ -71,7 +70,7 @@ func Test_BatchInsertChat2DB(t *testing.T) {
 	//}
 
 	_ = db.BatchInsertChat2DB
-	c := mongo.GetDatabase(conf.Mongo.Database).Collection("msg")
+	c := mongo.GetDatabase().Collection("msg")
 
 	ch := make(chan int)
 	rand.Seed(time.Now().UnixNano())
@@ -145,27 +144,26 @@ func Test_BatchInsertChat2DB(t *testing.T) {
 }
 
 func GetDB() *commonMsgDatabase {
-	conf := config.NewGlobalConfig()
-	conf.Mongo.Address = []string{"203.56.175.233:37017"}
-	// conf.Mongo.Timeout = 60
-	conf.Mongo.Database = "openim_v3"
-	// conf.Mongo.Source = "admin"
-	conf.Mongo.Username = "root"
-	conf.Mongo.Password = "openIM123"
-	conf.Mongo.MaxPoolSize = 100
-	conf.RetainChatRecords = 3650
-	conf.ChatRecordsClearTime = "0 2 * * 3"
+	config.Config.Mongo.Address = []string{"203.56.175.233:37017"}
+	// config.Config.Mongo.Timeout = 60
+	config.Config.Mongo.Database = "openIM_v3"
+	// config.Config.Mongo.Source = "admin"
+	config.Config.Mongo.Username = "root"
+	config.Config.Mongo.Password = "openIM123"
+	config.Config.Mongo.MaxPoolSize = 100
+	config.Config.RetainChatRecords = 3650
+	config.Config.ChatRecordsClearTime = "0 2 * * 3"
 
-	mongo, err := unrelation.NewMongo(conf)
+	mongo, err := unrelation.NewMongo()
 	if err != nil {
 		panic(err)
 	}
-	err = mongo.GetDatabase(conf.Mongo.Database).Client().Ping(context.Background(), nil)
+	err = mongo.GetDatabase().Client().Ping(context.Background(), nil)
 	if err != nil {
 		panic(err)
 	}
 	return &commonMsgDatabase{
-		msgDocDatabase: unrelation.NewMsgMongoDriver(mongo.GetDatabase(conf.Mongo.Database)),
+		msgDocDatabase: unrelation.NewMsgMongoDriver(mongo.GetDatabase()),
 	}
 }
 

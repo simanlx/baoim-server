@@ -18,14 +18,14 @@ import (
 	"context"
 	"time"
 
-	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/constant"
-	"baoim/tools/errs"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewConversationMongo(db *mongo.Database) (*ConversationMgo, error) {
@@ -38,21 +38,8 @@ func NewConversationMongo(db *mongo.Database) (*ConversationMgo, error) {
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
-
-	//// 2. 新增 TTL 索引（基于 expire_at 字段，到达指定时间后自动删除）
-	//_, err = coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
-	//	Keys: bson.D{
-	//		{Key: "expire_time", Value: 1}, // 过期时间字段（日期类型）
-	//	},
-	//	// 配置过期规则：到达 expire_at 时间点后立即删除（0 秒延迟）
-	//	Options: options.Index().SetExpireAfterSeconds(0),
-	//})
-	//if err != nil {
-	//	return nil, errs.Wrap(err)
-	//}
-
 	return &ConversationMgo{coll: coll}, nil
 }
 
@@ -67,17 +54,6 @@ func (c *ConversationMgo) Create(ctx context.Context, conversations []*relation.
 func (c *ConversationMgo) Delete(ctx context.Context, groupIDs []string) (err error) {
 	return mgoutil.DeleteMany(ctx, c.coll, bson.M{"group_id": bson.M{"$in": groupIDs}})
 }
-
-// DeleteOne 删除指定用户的指定聊天室会话
-func (c *ConversationMgo) DeleteOne(ctx context.Context, ownerUserID string, groupID string) (err error) {
-	return mgoutil.DeleteMany(ctx, c.coll, bson.M{"owner_user_id": ownerUserID, "group_id": groupID})
-}
-
-//
-//func (c *ConversationMgo) Expire(ctx context.Context, groupID string, expireTime time.Time) (err error) {
-//	_, err = mgoutil.UpdateMany(ctx, c.coll, bson.M{"group_id": groupID}, bson.M{"$set": bson.M{"expire_time": expireTime}})
-//	return err
-//}
 
 func (c *ConversationMgo) UpdateByMap(ctx context.Context, userIDs []string, conversationID string, args map[string]any) (rows int64, err error) {
 	res, err := mgoutil.UpdateMany(ctx, c.coll, bson.M{"owner_user_id": bson.M{"$in": userIDs}, "conversation_id": conversationID}, bson.M{"$set": args})
@@ -120,14 +96,8 @@ func (c *ConversationMgo) FindUserIDAllConversations(ctx context.Context, userID
 	return mgoutil.Find[*relation.ConversationModel](ctx, c.coll, bson.M{"owner_user_id": userID})
 }
 
-func (c *ConversationMgo) FindRecvMsgUserIDs(ctx context.Context, conversationID string, recvOpts []int) ([]string, error) {
-	var filter any
-	if len(recvOpts) == 0 {
-		filter = bson.M{"conversation_id": conversationID}
-	} else {
-		filter = bson.M{"conversation_id": conversationID, "recv_msg_opt": bson.M{"$in": recvOpts}}
-	}
-	return mgoutil.Find[string](ctx, c.coll, filter, options.Find().SetProjection(bson.M{"_id": 0, "owner_user_id": 1}))
+func (c *ConversationMgo) FindRecvMsgNotNotifyUserIDs(ctx context.Context, groupID string) ([]string, error) {
+	return mgoutil.Find[string](ctx, c.coll, bson.M{"group_id": groupID, "recv_msg_opt": constant.ReceiveNotNotifyMessage}, options.Find().SetProjection(bson.M{"_id": 0, "owner_user_id": 1}))
 }
 
 func (c *ConversationMgo) GetUserRecvMsgOpt(ctx context.Context, ownerUserID, conversationID string) (opt int, err error) {
@@ -144,8 +114,7 @@ func (c *ConversationMgo) GetAllConversationIDs(ctx context.Context) ([]string, 
 func (c *ConversationMgo) GetAllConversationIDsNumber(ctx context.Context) (int64, error) {
 	counts, err := mgoutil.Aggregate[int64](ctx, c.coll, []bson.M{
 		{"$group": bson.M{"_id": "$conversation_id"}},
-		{"$group": bson.M{"_id": nil, "count": bson.M{"$sum": 1}}},
-		{"$project": bson.M{"_id": 0}},
+		{"$project": bson.M{"_id": 0, "conversation_id": "$_id"}},
 	})
 	if err != nil {
 		return 0, err

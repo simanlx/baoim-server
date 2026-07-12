@@ -22,54 +22,50 @@ import (
 	"syscall"
 	"time"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"baoim/tools/errs"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
+
+	"baoim/tools/log"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
 )
 
-func StartTask(config *config.GlobalConfig) error {
-	fmt.Println("cron task start, config", config.ChatRecordsClearTime)
-
-	msgTool, err := InitMsgTool(config)
+func StartTask() error {
+	fmt.Println("cron task start, config", config.Config.ChatRecordsClearTime)
+	msgTool, err := InitMsgTool()
 	if err != nil {
 		return err
 	}
 
 	msgTool.convertTools()
 
-	rdb, err := cache.NewRedis(config)
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
 
 	// register cron tasks
 	var crontab = cron.New()
-	fmt.Printf("Start chatRecordsClearTime cron task, cron config: %s\n", config.ChatRecordsClearTime)
-	_, err = crontab.AddFunc(config.ChatRecordsClearTime, cronWrapFunc(config, rdb, "cron_clear_msg_and_fix_seq", msgTool.AllConversationClearMsgAndFixSeq))
+	log.ZInfo(context.Background(), "start chatRecordsClearTime cron task", "cron config", config.Config.ChatRecordsClearTime)
+	_, err = crontab.AddFunc(config.Config.ChatRecordsClearTime, cronWrapFunc(rdb, "cron_clear_msg_and_fix_seq", msgTool.AllConversationClearMsgAndFixSeq))
 	if err != nil {
-		return errs.Wrap(err)
+		log.ZError(context.Background(), "start allConversationClearMsgAndFixSeq cron failed", err)
+		panic(err)
 	}
 
-	fmt.Printf("Start msgDestruct cron task, cron config: %s\n", config.MsgDestructTime)
-	_, err = crontab.AddFunc(config.MsgDestructTime, cronWrapFunc(config, rdb, "cron_conversations_destruct_msgs", msgTool.ConversationsDestructMsgs))
+	log.ZInfo(context.Background(), "start msgDestruct cron task", "cron config", config.Config.MsgDestructTime)
+	_, err = crontab.AddFunc(config.Config.MsgDestructTime, cronWrapFunc(rdb, "cron_conversations_destruct_msgs", msgTool.ConversationsDestructMsgs))
 	if err != nil {
-		return errs.Wrap(err, "cron_conversations_destruct_msgs")
+		log.ZError(context.Background(), "start conversationsDestructMsgs cron failed", err)
+		panic(err)
 	}
-
-	//回头研究
-	//fmt.Printf("Start msgDestruct cron task, cron config: %s\n", config.MsgDestructTime)
-	//_, err = crontab.AddFunc("* * * * *", cronWrapFunc(config, rdb, "cron_conversations_destruct_msgs", msgTool.ConversationsDestructMsgs))
-	//if err != nil {
-	//	return errs.Wrap(err, "cron_conversations_destruct_msgs")
-	//}
 
 	// start crontab
 	crontab.Start()
 
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	<-sigs
 
 	// stop crontab, Wait for the running task to exit.
@@ -98,8 +94,8 @@ func netlock(rdb redis.UniversalClient, key string, ttl time.Duration) bool {
 	return ok
 }
 
-func cronWrapFunc(config *config.GlobalConfig, rdb redis.UniversalClient, key string, fn func()) func() {
-	enableCronLocker := config.EnableCronLocker
+func cronWrapFunc(rdb redis.UniversalClient, key string, fn func()) func() {
+	enableCronLocker := config.Config.EnableCronLocker
 	return func() {
 		// if don't enable cron-locker, call fn directly.
 		if !enableCronLocker {

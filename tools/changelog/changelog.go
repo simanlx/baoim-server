@@ -61,7 +61,7 @@ var (
 		{"template", "template"},
 		{"etcd", "server"},
 		{"pod", "node"},
-		{"scripts/", "hack"},
+		{"hack/", "hack"},
 		{"e2e", "test"},
 		{"integration", "test"},
 		{"cluster", "cluster"},

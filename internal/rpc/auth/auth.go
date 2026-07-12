@@ -18,11 +18,9 @@ import (
 	"context"
 
 	"BaoIM-Server/pkg/authverify"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/controller"
-	"BaoIM-Server/pkg/common/prommetrics"
-	"BaoIM-Server/pkg/rpcclient"
+
+	"google.golang.org/grpc"
+
 	pbauth "baoim/protocol/auth"
 	"baoim/protocol/constant"
 	"baoim/protocol/msggateway"
@@ -31,39 +29,42 @@ import (
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"baoim/tools/tokenverify"
-	"google.golang.org/grpc"
+	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/common/prommetrics"
+	"BaoIM-Server/pkg/rpcclient"
 )
 
 type authServer struct {
 	authDatabase   controller.AuthDatabase
 	userRpcClient  *rpcclient.UserRpcClient
 	RegisterCenter discoveryregistry.SvcDiscoveryRegistry
-	config         *config.GlobalConfig
 }
 
-func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	rdb, err := cache.NewRedis(config)
+func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
-	userRpcClient := rpcclient.NewUserRpcClient(client, config)
+	userRpcClient := rpcclient.NewUserRpcClient(client)
 	pbauth.RegisterAuthServer(server, &authServer{
 		userRpcClient:  &userRpcClient,
 		RegisterCenter: client,
 		authDatabase: controller.NewAuthDatabase(
-			cache.NewMsgCacheModel(rdb, config),
-			config.Secret,
-			config.TokenPolicy.Expire,
-			config,
+			cache.NewMsgCacheModel(rdb),
+			config.Config.Secret,
+			config.Config.TokenPolicy.Expire,
 		),
-		config: config,
 	})
 	return nil
 }
 
 func (s *authServer) UserToken(ctx context.Context, req *pbauth.UserTokenReq) (*pbauth.UserTokenResp, error) {
 	resp := pbauth.UserTokenResp{}
-	if req.Secret != s.config.Secret {
+	if req.Secret != config.Config.Secret {
 		return nil, errs.ErrNoPermission.Wrap("secret invalid")
 	}
 	if _, err := s.userRpcClient.GetUserInfo(ctx, req.UserID); err != nil {
@@ -75,36 +76,14 @@ func (s *authServer) UserToken(ctx context.Context, req *pbauth.UserTokenReq) (*
 	}
 	prommetrics.UserLoginCounter.Inc()
 	resp.Token = token
-	resp.ExpireTimeSeconds = s.config.TokenPolicy.Expire * 24 * 60 * 60
-	return &resp, nil
-}
-
-func (s *authServer) GetUserToken(ctx context.Context, req *pbauth.GetUserTokenReq) (*pbauth.GetUserTokenResp, error) {
-	if err := authverify.CheckAdmin(ctx, s.config); err != nil {
-		return nil, err
-	}
-	resp := pbauth.GetUserTokenResp{}
-
-	if authverify.IsManagerUserID(req.UserID, s.config) {
-		return nil, errs.ErrNoPermission.Wrap("don't get Admin token")
-	}
-
-	if _, err := s.userRpcClient.GetUserInfo(ctx, req.UserID); err != nil {
-		return nil, err
-	}
-	token, err := s.authDatabase.CreateToken(ctx, req.UserID, int(req.PlatformID))
-	if err != nil {
-		return nil, err
-	}
-	resp.Token = token
-	resp.ExpireTimeSeconds = s.config.TokenPolicy.Expire * 24 * 60 * 60
+	resp.ExpireTimeSeconds = config.Config.TokenPolicy.Expire * 24 * 60 * 60
 	return &resp, nil
 }
 
 func (s *authServer) parseToken(ctx context.Context, tokensString string) (claims *tokenverify.Claims, err error) {
-	claims, err = tokenverify.GetClaimFromToken(tokensString, authverify.Secret(s.config.Secret))
+	claims, err = tokenverify.GetClaimFromToken(tokensString, authverify.Secret())
 	if err != nil {
-		return nil, errs.Wrap(err)
+		return nil, utils.Wrap(err, "")
 	}
 	m, err := s.authDatabase.GetTokensWithoutError(ctx, claims.UserID, claims.PlatformID)
 	if err != nil {
@@ -120,7 +99,7 @@ func (s *authServer) parseToken(ctx context.Context, tokensString string) (claim
 		case constant.KickedToken:
 			return nil, errs.ErrTokenKicked.Wrap()
 		default:
-			return nil, errs.Wrap(errs.ErrTokenUnknown)
+			return nil, utils.Wrap(errs.ErrTokenUnknown, "")
 		}
 	}
 	return nil, errs.ErrTokenNotExist.Wrap()
@@ -142,7 +121,7 @@ func (s *authServer) ParseToken(
 }
 
 func (s *authServer) ForceLogout(ctx context.Context, req *pbauth.ForceLogoutReq) (*pbauth.ForceLogoutResp, error) {
-	if err := authverify.CheckAdmin(ctx, s.config); err != nil {
+	if err := authverify.CheckAdmin(ctx); err != nil {
 		return nil, err
 	}
 	if err := s.forceKickOff(ctx, req.UserID, req.PlatformID, mcontext.GetOperationID(ctx)); err != nil {
@@ -152,7 +131,7 @@ func (s *authServer) ForceLogout(ctx context.Context, req *pbauth.ForceLogoutReq
 }
 
 func (s *authServer) forceKickOff(ctx context.Context, userID string, platformID int32, operationID string) error {
-	conns, err := s.RegisterCenter.GetConns(ctx, s.config.RpcRegisterName.OpenImMessageGatewayName)
+	conns, err := s.RegisterCenter.GetConns(ctx, config.Config.RpcRegisterName.OpenImMessageGatewayName)
 	if err != nil {
 		return err
 	}

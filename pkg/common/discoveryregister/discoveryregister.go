@@ -18,29 +18,25 @@ import (
 	"errors"
 	"os"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/discoveryregister/direct"
 	"BaoIM-Server/pkg/common/discoveryregister/kubernetes"
 	"BaoIM-Server/pkg/common/discoveryregister/zookeeper"
+
 	"baoim/tools/discoveryregistry"
-	"baoim/tools/errs"
 )
 
 // NewDiscoveryRegister creates a new service discovery and registry client based on the provided environment type.
-func NewDiscoveryRegister(config *config.GlobalConfig) (discoveryregistry.SvcDiscoveryRegistry, error) {
+func NewDiscoveryRegister(envType string) (discoveryregistry.SvcDiscoveryRegistry, error) {
 
 	if os.Getenv("ENVS_DISCOVERY") != "" {
-		config.Envs.Discovery = os.Getenv("ENVS_DISCOVERY")
+		envType = os.Getenv("ENVS_DISCOVERY")
 	}
 
-	switch config.Envs.Discovery {
+	switch envType {
 	case "zookeeper":
-		return zookeeper.NewZookeeperDiscoveryRegister(config)
+		return zookeeper.NewZookeeperDiscoveryRegister()
 	case "k8s":
-		return kubernetes.NewK8sDiscoveryRegister(config.RpcRegisterName.OpenImMessageGatewayName)
-	case "direct":
-		return direct.NewConnDirect(config)
+		return kubernetes.NewK8sDiscoveryRegister()
 	default:
-		return nil, errs.Wrap(errors.New("envType not correct"))
+		return nil, errors.New("envType not correct")
 	}
 }

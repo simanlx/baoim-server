@@ -15,73 +15,70 @@
 package push
 
 import (
-	"BaoIM-Server/pkg/rpccache"
 	"context"
+	"sync"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/controller"
-	"BaoIM-Server/pkg/rpcclient"
+	"baoim/tools/utils"
+
+	"google.golang.org/grpc"
+
 	"baoim/protocol/constant"
 	pbpush "baoim/protocol/push"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/log"
-	"baoim/tools/utils"
-	"google.golang.org/grpc"
+
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/common/db/localcache"
+	"BaoIM-Server/pkg/rpcclient"
 )
 
 type pushServer struct {
 	pusher *Pusher
-	config *config.GlobalConfig
 }
 
-func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	rdb, err := cache.NewRedis(config)
+func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
-	cacheModel := cache.NewMsgCacheModel(rdb, config)
-	offlinePusher := NewOfflinePusher(config, cacheModel)
+	cacheModel := cache.NewMsgCacheModel(rdb)
+	offlinePusher := NewOfflinePusher(cacheModel)
 	database := controller.NewPushDatabase(cacheModel)
-	groupRpcClient := rpcclient.NewGroupRpcClient(client, config)
-	roomRpcClient := rpcclient.NewRoomRpcClient(client, config)
-	conversationRpcClient := rpcclient.NewConversationRpcClient(client, config)
-	msgRpcClient := rpcclient.NewMessageRpcClient(client, config)
+	groupRpcClient := rpcclient.NewGroupRpcClient(client)
+	conversationRpcClient := rpcclient.NewConversationRpcClient(client)
+	msgRpcClient := rpcclient.NewMessageRpcClient(client)
 	pusher := NewPusher(
-		config,
 		client,
 		offlinePusher,
 		database,
-		rpccache.NewGroupLocalCache(groupRpcClient, rdb),
-		rpccache.NewConversationLocalCache(conversationRpcClient, rdb),
+		localcache.NewGroupLocalCache(&groupRpcClient),
+		localcache.NewConversationLocalCache(&conversationRpcClient),
 		&conversationRpcClient,
 		&groupRpcClient,
-		&roomRpcClient,
 		&msgRpcClient,
 	)
-
-	pbpush.RegisterPushMsgServiceServer(server, &pushServer{
-		pusher: pusher,
-		config: config,
-	})
-
-	consumer, err := NewConsumer(config, pusher)
-	if err != nil {
-		return err
-	}
-
-	consumer.Start()
-
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		pbpush.RegisterPushMsgServiceServer(server, &pushServer{
+			pusher: pusher,
+		})
+	}()
+	go func() {
+		defer wg.Done()
+		consumer := NewConsumer(pusher)
+		consumer.Start()
+	}()
+	wg.Wait()
 	return nil
 }
 
 func (r *pushServer) PushMsg(ctx context.Context, pbData *pbpush.PushMsgReq) (resp *pbpush.PushMsgResp, err error) {
-
 	switch pbData.MsgData.SessionType {
 	case constant.SuperGroupChatType:
 		err = r.pusher.Push2SuperGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
-	case constant.GroupChatType: ///增加聊天室
-		err = r.pusher.Push2RoomGroup(ctx, pbData.MsgData.GroupID, pbData.MsgData)
 	default:
 		var pushUserIDList []string
 		isSenderSync := utils.GetSwitchFromOptions(pbData.MsgData.Options, constant.IsSenderSync)

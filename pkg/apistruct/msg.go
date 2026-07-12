@@ -67,7 +67,6 @@ type LocationElem struct {
 	Longitude   float64 `mapstructure:"longitude"   validate:"required"`
 	Latitude    float64 `mapstructure:"latitude"    validate:"required"`
 }
-
 type CustomElem struct {
 	Data        string `mapstructure:"data"        validate:"required"`
 	Description string `mapstructure:"description"`

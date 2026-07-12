@@ -29,15 +29,16 @@ import (
 	"strings"
 	"time"
 
-	"BaoIM-Server/pkg/common/db/s3"
-	"baoim/tools/errs"
 	"github.com/tencentyun/cos-go-sdk-v5"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/s3"
 )
 
 const (
-	minPartSize int64 = 1024 * 1024 * 1        // 1MB
-	maxPartSize int64 = 1024 * 1024 * 1024 * 5 // 5GB
-	maxNumSize  int64 = 1000
+	minPartSize = 1024 * 1024 * 1        // 1MB
+	maxPartSize = 1024 * 1024 * 1024 * 5 // 5GB
+	maxNumSize  = 1000
 )
 
 const (
@@ -50,15 +51,13 @@ const (
 
 const successCode = http.StatusOK
 
-type Config struct {
-	BucketURL    string
-	SecretID     string
-	SecretKey    string
-	SessionToken string
-	PublicRead   bool
-}
+const (
+	videoSnapshotImagePng = "png"
+	videoSnapshotImageJpg = "jpg"
+)
 
-func NewCos(conf Config) (s3.Interface, error) {
+func NewCos() (s3.Interface, error) {
+	conf := config.Config.Object.Cos
 	u, err := url.Parse(conf.BucketURL)
 	if err != nil {
 		panic(err)
@@ -71,7 +70,6 @@ func NewCos(conf Config) (s3.Interface, error) {
 		},
 	})
 	return &Cos{
-		publicRead: conf.PublicRead,
 		copyURL:    u.Host + "/",
 		client:     client,
 		credential: client.GetCredential(),
@@ -79,7 +77,6 @@ func NewCos(conf Config) (s3.Interface, error) {
 }
 
 type Cos struct {
-	publicRead bool
 	copyURL    string
 	client     *cos.Client
 	credential *cos.Credential
@@ -136,7 +133,7 @@ func (c *Cos) PartSize(ctx context.Context, size int64) (int64, error) {
 		return 0, errors.New("size must be greater than 0")
 	}
 	if size > maxPartSize*maxNumSize {
-		return 0, fmt.Errorf("COS size must be less than the maximum allowed limit")
+		return 0, fmt.Errorf("size must be less than %db", maxPartSize*maxNumSize)
 	}
 	if size <= minPartSize*maxNumSize {
 		return minPartSize, nil
@@ -230,7 +227,7 @@ func (c *Cos) CopyObject(ctx context.Context, src string, dst string) (*s3.CopyO
 }
 
 func (c *Cos) IsNotFound(err error) bool {
-	switch e := errs.Unwrap(err).(type) {
+	switch e := err.(type) {
 	case *cos.ErrorResponse:
 		return e.Response.StatusCode == http.StatusNotFound || e.Code == "NoSuchKey"
 	default:
@@ -331,7 +328,7 @@ func (c *Cos) AccessURL(ctx context.Context, name string, expire time.Duration, 
 }
 
 func (c *Cos) getPresignedURL(ctx context.Context, name string, expire time.Duration, opt *cos.PresignedURLOptions) (*url.URL, error) {
-	if !c.publicRead {
+	if !config.Config.Object.Cos.PublicRead {
 		return c.client.Object.GetPresignedURL(ctx, http.MethodGet, name, c.credential.SecretID, c.credential.SecretKey, expire, opt)
 	}
 	return c.client.Object.GetObjectURL(name), nil

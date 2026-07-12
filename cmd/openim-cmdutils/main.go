@@ -16,7 +16,6 @@ package main
 
 import (
 	"BaoIM-Server/pkg/common/cmd"
-	util "BaoIM-Server/pkg/util/genutil"
 )
 
 func main() {
@@ -55,6 +54,6 @@ func main() {
 	// openIM clear msg --clearAll
 	msgUtilsCmd.AddCommand(&getCmd.Command, &fixCmd.Command, &clearCmd.Command)
 	if err := msgUtilsCmd.Execute(); err != nil {
-		util.ExitWithError(err)
+		panic(err)
 	}
 }

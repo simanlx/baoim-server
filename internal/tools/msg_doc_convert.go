@@ -15,10 +15,11 @@
 package tools
 
 import (
-	"BaoIM-Server/pkg/msgprocessor"
 	"baoim/protocol/constant"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
+
+	"BaoIM-Server/pkg/msgprocessor"
 )
 
 func (c *MsgTool) convertTools() {

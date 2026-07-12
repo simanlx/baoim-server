@@ -184,7 +184,7 @@ test-e2e:
 imports:
 	@$(MAKE) go.imports
 
-## clean: Delete all files created by the build, as well as all log files. ✨
+## clean: Remove all files that are created by building. ✨
 .PHONY: clean
 clean:
 	@$(MAKE) go.clean

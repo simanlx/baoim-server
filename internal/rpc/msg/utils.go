@@ -15,32 +15,30 @@
 package msg
 
 import (
-	"BaoIM-Server/pkg/common/config"
 	"baoim/protocol/constant"
 	"baoim/protocol/sdkws"
 	"baoim/tools/utils"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
-func isMessageHasReadEnabled(msgData *sdkws.MsgData, config *config.GlobalConfig) bool {
+func isMessageHasReadEnabled(msgData *sdkws.MsgData) bool {
 	switch {
 	case msgData.ContentType == constant.HasReadReceipt && msgData.SessionType == constant.SingleChatType:
-		if config.SingleMessageHasReadReceiptEnable {
+		if config.Config.SingleMessageHasReadReceiptEnable {
 			return true
 		} else {
 			return false
 		}
-
 	case msgData.ContentType == constant.HasReadReceipt && msgData.SessionType == constant.SuperGroupChatType:
-		if config.GroupMessageHasReadReceiptEnable {
+		if config.Config.GroupMessageHasReadReceiptEnable {
 			return true
 		} else {
 			return false
 		}
-
 	}
-
 	return true
 }
 

@@ -15,20 +15,25 @@
 package msggateway
 
 import (
-	"baoim/protocol/rtc"
+	"BaoIM-Server/pkg/common/config"
 	"context"
 	"sync"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/rpcclient"
-	"baoim/protocol/msg"
-	"baoim/protocol/push"
-	"baoim/protocol/sdkws"
-	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
-	"baoim/tools/utils"
+
+	"baoim/protocol/rtc"
+
+	"baoim/protocol/push"
+	"baoim/tools/discoveryregistry"
+
 	"github.com/go-playground/validator/v10"
 	"google.golang.org/protobuf/proto"
+
+	"baoim/protocol/msg"
+	"baoim/protocol/sdkws"
+	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/rpcclient"
 )
 
 type Req struct {
@@ -104,30 +109,28 @@ var _ MessageHandler = (*GrpcHandler)(nil)
 type GrpcHandler struct {
 	msgRpcClient *rpcclient.MessageRpcClient
 	pushClient   *rpcclient.PushRpcClient
+	signalClient *rpcclient.SignalRpcClient
 	validate     *validator.Validate
-	////增加rtc
-	rtcClient *rpcclient.RtcRpcClient
 }
 
-func NewGrpcHandler(validate *validator.Validate, client discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *GrpcHandler {
-	msgRpcClient := rpcclient.NewMessageRpcClient(client, config)
-	pushRpcClient := rpcclient.NewPushRpcClient(client, config)
-	rtcClient := rpcclient.NewRtcRpcClient(client, config)
+func NewGrpcHandler(validate *validator.Validate, client discoveryregistry.SvcDiscoveryRegistry) *GrpcHandler {
+	msgRpcClient := rpcclient.NewMessageRpcClient(client)
+	pushRpcClient := rpcclient.NewPushRpcClient(client)
+	signalClient := rpcclient.NewSignalRpcClient(client)
 	return &GrpcHandler{
 		msgRpcClient: &msgRpcClient,
-		pushClient:   &pushRpcClient,
-		validate:     validate,
-		rtcClient:    &rtcClient,
+		pushClient:   &pushRpcClient, validate: validate,
+		signalClient: &signalClient,
 	}
 }
 
 func (g GrpcHandler) GetSeq(context context.Context, data *Req) ([]byte, error) {
 	req := sdkws.GetMaxSeqReq{}
 	if err := proto.Unmarshal(data.Data, &req); err != nil {
-		return nil, errs.Wrap(err, "GetSeq: error unmarshaling request")
+		return nil, err
 	}
 	if err := g.validate.Struct(&req); err != nil {
-		return nil, errs.Wrap(err, "GetSeq: validation failed")
+		return nil, err
 	}
 	resp, err := g.msgRpcClient.GetMaxSeq(context, &req)
 	if err != nil {
@@ -135,60 +138,44 @@ func (g GrpcHandler) GetSeq(context context.Context, data *Req) ([]byte, error) 
 	}
 	c, err := proto.Marshal(resp)
 	if err != nil {
-		return nil, errs.Wrap(err, "GetSeq: error marshaling response")
+		return nil, err
 	}
 	return c, nil
 }
 
-// SendMessage handles the sending of messages through gRPC. It unmarshals the request data,
-// validates the message, and then sends it using the message RPC client.
-func (g GrpcHandler) SendMessage(ctx context.Context, data *Req) ([]byte, error) {
-	// Unmarshal the message data from the request.
-	var msgData sdkws.MsgData
+func (g GrpcHandler) SendMessage(context context.Context, data *Req) ([]byte, error) {
+	msgData := sdkws.MsgData{}
 	if err := proto.Unmarshal(data.Data, &msgData); err != nil {
-		return nil, errs.Wrap(err, "error unmarshalling message data")
+		return nil, err
 	}
-
-	// Validate the message data structure.
 	if err := g.validate.Struct(&msgData); err != nil {
-		return nil, errs.Wrap(err, "message data validation failed")
+		return nil, err
 	}
-
 	req := msg.SendMsgReq{MsgData: &msgData}
-
-	resp, err := g.msgRpcClient.SendMsg(ctx, &req)
+	resp, err := g.msgRpcClient.SendMsg(context, &req)
 	if err != nil {
 		return nil, err
 	}
-
 	c, err := proto.Marshal(resp)
 	if err != nil {
-		return nil, errs.Wrap(err, "error marshaling response")
+		return nil, err
 	}
-
 	return c, nil
 }
 
-// /信令消息 实现错误 未实现完成 客户端sdk被邀请者无法正常收到信令消息
 func (g GrpcHandler) SendSignalMessage(ctx context.Context, data *Req) ([]byte, error) {
-	signalReq := rtc.SignalReq{}
-	if err := proto.Unmarshal(data.Data, &signalReq); err != nil {
+	signalReq := &rtc.SignalReq{}
+	if err := proto.Unmarshal(data.Data, signalReq); err != nil {
 		return nil, err
-	}
-	if err := g.validate.Struct(&signalReq); err != nil {
-		return nil, err
-	}
-
-	req := &rtc.SignalMessageAssembleReq{
-		SignalReq: &signalReq,
 	}
 	// 调用RTC RPC客户端发送信号消息
-	respPb, err := g.rtcClient.Client.SignalMessageAssemble(ctx, req)
+	resp, err := g.signalClient.Client.SignalMessageAssemble(ctx, &rtc.SignalMessageAssembleReq{SignalReq: signalReq})
 	if err != nil {
-		return nil, errs.Wrap(err, "call rtc SendSignalMessage failed")
+		return nil, err
 	}
 
-	respPb.MsgData.Options = config.GetOptionsByNotification(config.NotificationConf{
+	//增加
+	resp.MsgData.Options = config.GetOptionsByNotification(config.NotificationConf{
 		IsSendMsg:        false,
 		ReliabilityLevel: 2,
 		UnreadCount:      false,
@@ -199,66 +186,27 @@ func (g GrpcHandler) SendSignalMessage(ctx context.Context, data *Req) ([]byte, 
 		//	"",
 		//},
 	})
-
-	req1 := msg.SendMsgReq{MsgData: respPb.MsgData}
-	_, err = g.msgRpcClient.SendMsg(ctx, &req1)
+	//发送消息
+	_, err = g.msgRpcClient.SendMsg(ctx, &msg.SendMsgReq{MsgData: resp.MsgData})
 	if err != nil {
 		return nil, err
 	}
-	//rpcPushMsg := push.PushMsgReq{MsgData: respPb.MsgData, ConversationID: msgprocessor.GetConversationIDByMsg(respPb.MsgData)}
-	//_, err = g.pushClient.Client.PushMsg(ctx, &rpcPushMsg)
-	//if err != nil {
-	//	println("推动错误", respPb.MsgData.SendID, err.Error())
-	//}
-	//println("ConversationID:", msgprocessor.GetConversationIDByMsg(respPb.MsgData))
 
-	c, err := proto.Marshal(respPb.SignalResp)
+	//c, err := proto.Marshal(resp)
+	c, err := proto.Marshal(resp.SignalResp)
 	if err != nil {
-		return nil, errs.Wrap(err, "error marshaling response")
+		return nil, errs.Wrap(err)
 	}
-
 	return c, nil
-
-	//msgData.Options = config.GetOptionsByNotification(config.NotificationConf{
-	//	IsSendMsg:        false,
-	//	ReliabilityLevel: 1,
-	//	UnreadCount:      false,
-	//	//OfflinePush: config.POfflinePush{
-	//	//	true,
-	//	//	"dddd",
-	//	//	"",
-	//	//	"",
-	//	//},
-	//})
-
-	//_, err = g.msgRpcClient.MsgVerification(ctx, &msg.SendMsgReq{MsgData: respPb.MsgData})
-	//if err != nil {
-	//	println(err.Error())
-	//	return nil, err
-	//}
-
 }
 
-//func (g GrpcHandler) SendSignalMessage(context context.Context, data *Req) ([]byte, error) {
-//	resp, err := g.msgRpcClient.SendMsg(context, nil)
-//	if err != nil {
-//		return nil, err
-//	}
-//	c, err := proto.Marshal(resp)
-//	if err != nil {
-//		return nil, errs.Wrap(err, "error marshaling response")
-//	}
-//	return c, nil
-//}
-
 func (g GrpcHandler) PullMessageBySeqList(context context.Context, data *Req) ([]byte, error) {
-
 	req := sdkws.PullMessageBySeqsReq{}
 	if err := proto.Unmarshal(data.Data, &req); err != nil {
-		return nil, errs.Wrap(err, "error unmarshaling request")
+		return nil, err
 	}
 	if err := g.validate.Struct(data); err != nil {
-		return nil, errs.Wrap(err, "validation failed")
+		return nil, err
 	}
 	resp, err := g.msgRpcClient.PullMessageBySeqList(context, &req)
 	if err != nil {
@@ -266,7 +214,7 @@ func (g GrpcHandler) PullMessageBySeqList(context context.Context, data *Req) ([
 	}
 	c, err := proto.Marshal(resp)
 	if err != nil {
-		return nil, errs.Wrap(err, "error marshaling response")
+		return nil, err
 	}
 	return c, nil
 }
@@ -274,7 +222,7 @@ func (g GrpcHandler) PullMessageBySeqList(context context.Context, data *Req) ([
 func (g GrpcHandler) UserLogout(context context.Context, data *Req) ([]byte, error) {
 	req := push.DelUserPushTokenReq{}
 	if err := proto.Unmarshal(data.Data, &req); err != nil {
-		return nil, errs.Wrap(err, "error unmarshaling request")
+		return nil, err
 	}
 	resp, err := g.pushClient.DelUserPushToken(context, &req)
 	if err != nil {
@@ -282,7 +230,7 @@ func (g GrpcHandler) UserLogout(context context.Context, data *Req) ([]byte, err
 	}
 	c, err := proto.Marshal(resp)
 	if err != nil {
-		return nil, errs.Wrap(err, "error marshaling response")
+		return nil, err
 	}
 	return c, nil
 }
@@ -290,10 +238,10 @@ func (g GrpcHandler) UserLogout(context context.Context, data *Req) ([]byte, err
 func (g GrpcHandler) SetUserDeviceBackground(_ context.Context, data *Req) ([]byte, bool, error) {
 	req := sdkws.SetAppBackgroundStatusReq{}
 	if err := proto.Unmarshal(data.Data, &req); err != nil {
-		return nil, false, errs.Wrap(err, "error unmarshaling request")
+		return nil, false, err
 	}
 	if err := g.validate.Struct(data); err != nil {
-		return nil, false, errs.Wrap(err, "validation failed")
+		return nil, false, err
 	}
 	return nil, req.IsBackground, nil
 }

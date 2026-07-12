@@ -43,6 +43,7 @@ const (
 	WSKickOnlineMsg       = 2002
 	WsLogoutMsg           = 2003
 	WsSetBackgroundStatus = 2004
+	WSServerConfigMsg     = 2100
 	WSDataError           = 3001
 )
 

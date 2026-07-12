@@ -20,14 +20,12 @@ import (
 	"testing"
 	"time"
 
-	"BaoIM-Server/pkg/common/config"
-
 	"baoim/tools/discoveryregistry"
 	"google.golang.org/grpc"
 )
 
 // mockRpcFn is a mock gRPC function for testing.
-func mockRpcFn(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+func mockRpcFn(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
 	// Implement a mock gRPC service registration logic if needed
 	return nil
 }
@@ -42,8 +40,7 @@ func TestStart(t *testing.T) {
 	doneChan := make(chan error, 1)
 
 	go func() {
-		err := Start(testRpcPort, testRpcRegisterName, testPrometheusPort,
-			config.NewGlobalConfig(), mockRpcFn)
+		err := Start(testRpcPort, testRpcRegisterName, testPrometheusPort, mockRpcFn)
 		doneChan <- err
 	}()
 

@@ -31,7 +31,7 @@ func TestGetDefaultConfigPath(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, _ := GetDefaultConfigPath(); got != tt.want {
+			if got := GetDefaultConfigPath(); got != tt.want {
 				t.Errorf("GetDefaultConfigPath() = %v, want %v", got, tt.want)
 			}
 		})
@@ -47,7 +47,7 @@ func TestGetProjectRoot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got, _ := GetProjectRoot(); got != tt.want {
+			if got := GetProjectRoot(); got != tt.want {
 				t.Errorf("GetProjectRoot() = %v, want %v", got, tt.want)
 			}
 		})
@@ -103,26 +103,15 @@ func TestInitConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    args
-		config  *GlobalConfig
 		wantErr bool
 	}{
 		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := InitConfig(tt.config, tt.args.configFolderPath); (err != nil) != tt.wantErr {
+			if err := InitConfig(tt.args.configFolderPath); (err != nil) != tt.wantErr {
 				t.Errorf("InitConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
-}
-
-func TestName(t *testing.T) {
-	Config.LocalCache.Friend.Topic = "friend"
-	Config.LocalCache.Friend.SlotNum = 500
-	Config.LocalCache.Friend.SlotSize = 20000
-
-	//data, _ := yaml.Marshal(&Config)
-	//
-	//fmt.Println(string(data))
 }

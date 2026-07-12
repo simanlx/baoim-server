@@ -15,9 +15,11 @@
 package api
 
 import (
-	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/group"
 	"baoim/tools/a2r"
+
+	"BaoIM-Server/pkg/rpcclient"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,6 +40,7 @@ func (o *GroupApi) SetGroupInfo(c *gin.Context) {
 func (o *GroupApi) JoinGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.JoinGroup, o.Client, c)
 }
+
 func (o *GroupApi) QuitGroup(c *gin.Context) {
 	a2r.Call(group.GroupClient.QuitGroup, o.Client, c)
 }

@@ -1,17 +1,3 @@
-# Copyright © 2024 OpenIM. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 # -----------------------------------------------------------------------------
 # General Configuration
 # This section contains general configuration options for the entire environment.
@@ -100,7 +86,11 @@ ZOOKEEPER_PORT=${ZOOKEEPER_PORT}
 
 # MongoDB service port configuration.
 # Default: MONGO_PORT=37017
-MONGO_PORT=${MONGO_PORT}
+# MONGO_PORT=${MONGO_PORT}
+
+# Username for MongoDB admin user. Used for service authentication.
+# Default: MONGO_USERNAME=root
+# MONGO_USERNAME=${MONGO_USERNAME}
 
 # Password for MongoDB admin user. Used for service authentication.
 # Default: MONGO_PASSWORD=openIM123
@@ -115,10 +105,9 @@ MONGO_OPENIM_USERNAME=${MONGO_OPENIM_USERNAME}
 MONGO_OPENIM_PASSWORD=${MONGO_OPENIM_PASSWORD}
 
 # Specifies the database name to be used within MongoDB.
-# Default: MONGO_DATABASE=openim_v3
+# Default: MONGO_DATABASE=openIM_v3
 MONGO_DATABASE=${MONGO_DATABASE}
 
-MONGO_MAX_POOL_SIZE=${MONGO_MAX_POOL_SIZE}
 # ----- Redis Configuration -----
 
 # Port on which Redis in-memory data structure store is running.
@@ -143,7 +132,7 @@ KAFKA_LATESTMSG_REDIS_TOPIC=${KAFKA_LATESTMSG_REDIS_TOPIC}
 # MINIO_PORT
 # ----------
 # MINIO_PORT sets the port for the MinIO object storage service.
-# Upon changing this port, the MinIO endpoint URLs in the config/config.yaml file must be updated
+# Upon changing this port, the MinIO endpoint URLs in the `config/config.yaml` file must be updated
 # to reflect this change. The endpoints include both the 'endpoint' and 'signEndpoint' 
 # under the MinIO configuration.
 #
@@ -171,6 +160,10 @@ GRAFANA_PORT=${GRAFANA_PORT}
 # ======================================
 # ============ OpenIM Web ===============
 # ======================================
+
+# Path to the OpenIM web distribution.
+# Default: OPENIM_WEB_DIST_PATH=/app/dist
+OPENIM_WEB_DIST_PATH=${OPENIM_WEB_DIST_PATH}
 
 # Port on which OpenIM web service is running.
 # Default: OPENIM_WEB_PORT=11001

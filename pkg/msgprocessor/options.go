@@ -37,7 +37,6 @@ func NewOptions(opts ...OptionsOpt) Options {
 	for _, opt := range opts {
 		opt(options)
 	}
-
 	return options
 }
 

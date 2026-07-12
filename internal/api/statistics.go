@@ -15,10 +15,12 @@
 package api
 
 import (
-	"BaoIM-Server/pkg/rpcclient"
+	"github.com/gin-gonic/gin"
+
 	"baoim/protocol/user"
 	"baoim/tools/a2r"
-	"github.com/gin-gonic/gin"
+
+	"BaoIM-Server/pkg/rpcclient"
 )
 
 type StatisticsApi rpcclient.User

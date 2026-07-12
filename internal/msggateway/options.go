@@ -19,15 +19,15 @@ import "time"
 type (
 	Option  func(opt *configs)
 	configs struct {
-		// Long connection listening port
+		// 长连接监听端口
 		port int
-		// Maximum number of connections allowed for long connection
+		// 长连接允许最大链接数
 		maxConnNum int64
-		// Connection handshake timeout
+		// 连接握手超时时间
 		handshakeTimeout time.Duration
-		// Maximum length allowed for messages
+		// 允许消息最大长度
 		messageMaxMsgLength int
-		// Websocket write buffer, default: 4096, 4kb.
+		// websocket write buffer, default: 4096, 4kb.
 		writeBufferSize int
 	}
 )

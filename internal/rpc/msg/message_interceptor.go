@@ -17,24 +17,25 @@ package msg
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/config"
 	"baoim/protocol/constant"
 	"baoim/protocol/msg"
 	"baoim/protocol/sdkws"
 	"baoim/tools/errs"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
-type MessageInterceptorFunc func(ctx context.Context, globalConfig *config.GlobalConfig, req *msg.SendMsgReq) (*sdkws.MsgData, error)
+type MessageInterceptorFunc func(ctx context.Context, req *msg.SendMsgReq) (*sdkws.MsgData, error)
 
-func MessageHasReadEnabled(_ context.Context, globalConfig *config.GlobalConfig, req *msg.SendMsgReq) (*sdkws.MsgData, error) {
+func MessageHasReadEnabled(_ context.Context, req *msg.SendMsgReq) (*sdkws.MsgData, error) {
 	switch {
 	case req.MsgData.ContentType == constant.HasReadReceipt && req.MsgData.SessionType == constant.SingleChatType:
-		if !globalConfig.SingleMessageHasReadReceiptEnable {
+		if !config.Config.SingleMessageHasReadReceiptEnable {
 			return nil, errs.ErrMessageHasReadDisable.Wrap()
 		}
 		return req.MsgData, nil
 	case req.MsgData.ContentType == constant.HasReadReceipt && req.MsgData.SessionType == constant.SuperGroupChatType:
-		if !globalConfig.GroupMessageHasReadReceiptEnable {
+		if !config.Config.GroupMessageHasReadReceiptEnable {
 			return nil, errs.ErrMessageHasReadDisable.Wrap()
 		}
 		return req.MsgData, nil

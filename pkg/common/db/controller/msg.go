@@ -20,21 +20,27 @@ import (
 	"errors"
 	"time"
 
+	"baoim/protocol/constant"
+
+	"BaoIM-Server/pkg/common/prommetrics"
+
+	"github.com/redis/go-redis/v9"
+
+	"baoim/tools/errs"
+	"baoim/tools/log"
+
+	"go.mongodb.org/mongo-driver/mongo"
+
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/convert"
 	"BaoIM-Server/pkg/common/db/cache"
 	unrelationtb "BaoIM-Server/pkg/common/db/table/unrelation"
 	"BaoIM-Server/pkg/common/db/unrelation"
 	"BaoIM-Server/pkg/common/kafka"
-	"BaoIM-Server/pkg/common/prommetrics"
-	"baoim/protocol/constant"
+
 	pbmsg "baoim/protocol/msg"
 	"baoim/protocol/sdkws"
-	"baoim/tools/errs"
-	"baoim/tools/log"
 	"baoim/tools/utils"
-	"github.com/redis/go-redis/v9"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 const (
@@ -42,36 +48,33 @@ const (
 	updateKeyRevoke
 )
 
-// CommonMsgDatabase defines the interface for message database operations.
 type CommonMsgDatabase interface {
-
-	// DelUserSeq 删除用户 最小seq 及 已读seq
-	DelUserSeq(ctx context.Context, uid string, conversationID string) error
-	// BatchInsertChat2DB inserts a batch of messages into the database for a specific conversation.
+	// 批量插入消息
 	BatchInsertChat2DB(ctx context.Context, conversationID string, msgs []*sdkws.MsgData, currentMaxSeq int64) error
-	// RevokeMsg revokes a message in a conversation.
+	// 撤回消息
 	RevokeMsg(ctx context.Context, conversationID string, seq int64, revoke *unrelationtb.RevokeModel) error
-	// MarkSingleChatMsgsAsRead marks messages as read for a single chat by sequence numbers.
+	// mark as read
 	MarkSingleChatMsgsAsRead(ctx context.Context, userID string, conversationID string, seqs []int64) error
-	// DeleteMessagesFromCache deletes message caches from Redis by sequence numbers.
+	// 刪除redis中消息缓存
 	DeleteMessagesFromCache(ctx context.Context, conversationID string, seqs []int64) error
-	// DelUserDeleteMsgsList deletes user's message deletion list.
 	DelUserDeleteMsgsList(ctx context.Context, conversationID string, seqs []int64)
-	// BatchInsertChat2Cache increments the sequence number and then batch inserts messages into the cache.
+	// incrSeq然后批量插入缓存
 	BatchInsertChat2Cache(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) (seq int64, isNewConversation bool, err error)
-	// GetMsgBySeqsRange retrieves messages from MongoDB by a range of sequence numbers.
+
+	//  通过seqList获取mongo中写扩散消息
 	GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (minSeq int64, maxSeq int64, seqMsg []*sdkws.MsgData, err error)
-	// GetMsgBySeqs retrieves messages for large groups from MongoDB by sequence numbers.
+	// 通过seqList获取大群在 mongo里面的消息
 	GetMsgBySeqs(ctx context.Context, userID string, conversationID string, seqs []int64) (minSeq int64, maxSeq int64, seqMsg []*sdkws.MsgData, err error)
-	// DeleteConversationMsgsAndSetMinSeq deletes conversation messages and resets the minimum sequence number. If `remainTime` is 0, all messages are deleted (this method does not delete Redis
-	// cache).
+	// 删除会话消息重置最小seq， remainTime为消息保留的时间单位秒,超时消息删除， 传0删除所有消息(此方法不删除redis cache)
 	DeleteConversationMsgsAndSetMinSeq(ctx context.Context, conversationID string, remainTime int64) error
-	// UserMsgsDestruct marks messages for deletion based on destruct time and returns a list of sequence numbers for marked messages.
+	// 用户标记删除过期消息返回标记删除的seq列表
 	UserMsgsDestruct(ctx context.Context, userID string, conversationID string, destructTime int64, lastMsgDestructTime time.Time) (seqs []int64, err error)
-	// DeleteUserMsgsBySeqs allows a user to delete messages based on sequence numbers.
+
+	// 用户根据seq删除消息
 	DeleteUserMsgsBySeqs(ctx context.Context, userID string, conversationID string, seqs []int64) error
-	// DeleteMsgsPhysicalBySeqs physically deletes messages by emptying them based on sequence numbers.
+	// 物理删除消息置空
 	DeleteMsgsPhysicalBySeqs(ctx context.Context, conversationID string, seqs []int64) error
+
 	SetMaxSeq(ctx context.Context, conversationID string, maxSeq int64) error
 	GetMaxSeqs(ctx context.Context, conversationIDs []string) (map[string]int64, error)
 	GetMaxSeq(ctx context.Context, conversationID string) (int64, error)
@@ -123,49 +126,21 @@ type CommonMsgDatabase interface {
 	ConvertMsgsDocLen(ctx context.Context, conversationIDs []string)
 }
 
-func NewCommonMsgDatabase(msgDocModel unrelationtb.MsgDocModelInterface, cacheModel cache.MsgModel, config *config.GlobalConfig) (CommonMsgDatabase, error) {
-	producerConfig := &kafka.ProducerConfig{
-		ProducerAck:  config.Kafka.ProducerAck,
-		CompressType: config.Kafka.CompressType,
-		Username:     config.Kafka.Username,
-		Password:     config.Kafka.Password,
-	}
-
-	var tlsConfig *kafka.TLSConfig
-	if config.Kafka.TLS != nil {
-		tlsConfig = &kafka.TLSConfig{
-			CACrt:              config.Kafka.TLS.CACrt,
-			ClientCrt:          config.Kafka.TLS.ClientCrt,
-			ClientKey:          config.Kafka.TLS.ClientKey,
-			ClientKeyPwd:       config.Kafka.TLS.ClientKeyPwd,
-			InsecureSkipVerify: false,
-		}
-	}
-	producerToRedis, err := kafka.NewKafkaProducer(config.Kafka.Addr, config.Kafka.LatestMsgToRedis.Topic, producerConfig, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-	producerToMongo, err := kafka.NewKafkaProducer(config.Kafka.Addr, config.Kafka.MsgToMongo.Topic, producerConfig, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-	producerToPush, err := kafka.NewKafkaProducer(config.Kafka.Addr, config.Kafka.MsgToPush.Topic, producerConfig, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
+func NewCommonMsgDatabase(msgDocModel unrelationtb.MsgDocModelInterface, cacheModel cache.MsgModel) CommonMsgDatabase {
 	return &commonMsgDatabase{
 		msgDocDatabase:  msgDocModel,
 		cache:           cacheModel,
-		producer:        producerToRedis,
-		producerToMongo: producerToMongo,
-		producerToPush:  producerToPush,
-	}, nil
+		producer:        kafka.NewKafkaProducer(config.Config.Kafka.Addr, config.Config.Kafka.LatestMsgToRedis.Topic),
+		producerToMongo: kafka.NewKafkaProducer(config.Config.Kafka.Addr, config.Config.Kafka.MsgToMongo.Topic),
+		producerToPush:  kafka.NewKafkaProducer(config.Config.Kafka.Addr, config.Config.Kafka.MsgToPush.Topic),
+	}
 }
 
-func InitCommonMsgDatabase(rdb redis.UniversalClient, database *mongo.Database, config *config.GlobalConfig) (CommonMsgDatabase, error) {
-	cacheModel := cache.NewMsgCacheModel(rdb, config)
+func InitCommonMsgDatabase(rdb redis.UniversalClient, database *mongo.Database) CommonMsgDatabase {
+	cacheModel := cache.NewMsgCacheModel(rdb)
 	msgDocModel := unrelation.NewMsgMongoDriver(database)
-	return NewCommonMsgDatabase(msgDocModel, cacheModel, config)
+	CommonMsgDatabase := NewCommonMsgDatabase(msgDocModel, cacheModel)
+	return CommonMsgDatabase
 }
 
 type commonMsgDatabase struct {
@@ -209,86 +184,83 @@ func (db *commonMsgDatabase) MsgToMongoMQ(ctx context.Context, key, conversation
 }
 
 func (db *commonMsgDatabase) BatchInsertBlock(ctx context.Context, conversationID string, fields []any, key int8, firstSeq int64) error {
-	// 如果字段为空，直接返回
 	if len(fields) == 0 {
 		return nil
 	}
-	num := db.msg.GetSingleGocMsgNum() // 获取单个文档可存放消息数量
+	num := db.msg.GetSingleGocMsgNum()
 	// num = 100
-	for i, field := range fields { // 检查每个字段类型
+	for i, field := range fields { // 检查类型
 		var ok bool
 		switch key {
-		case updateKeyMsg: // 普通消息
+		case updateKeyMsg:
 			var msg *unrelationtb.MsgDataModel
-			msg, ok = field.(*unrelationtb.MsgDataModel)    // 类型断言
-			if msg != nil && msg.Seq != firstSeq+int64(i) { // 校验seq是否连续
-				return errs.ErrInternalServer.Wrap("seq is invalid") // 序列号无效则报错
+			msg, ok = field.(*unrelationtb.MsgDataModel)
+			if msg != nil && msg.Seq != firstSeq+int64(i) {
+				return errs.ErrInternalServer.Wrap("seq is invalid")
 			}
-		case updateKeyRevoke: // 撤回消息
-			_, ok = field.(*unrelationtb.RevokeModel) // 类型断言
+		case updateKeyRevoke:
+			_, ok = field.(*unrelationtb.RevokeModel)
 		default:
-			return errs.ErrInternalServer.Wrap("key is invalid") // key类型无效则报错
+			return errs.ErrInternalServer.Wrap("key is invalid")
 		}
-		if !ok { // 类型断言失败
+		if !ok {
 			return errs.ErrInternalServer.Wrap("field type is invalid")
 		}
 	}
-	// 判断数据库中是否已存在该消息，存在则更新，否则插入
+	// 返回值为true表示数据库存在该文档，false表示数据库不存在该文档
 	updateMsgModel := func(seq int64, i int) (bool, error) {
 		var (
 			res *mongo.UpdateResult
 			err error
 		)
-		docID := db.msg.GetDocID(conversationID, seq) // 计算文档ID
-		index := db.msg.GetMsgIndex(seq)              // 获取消息在文档中的索引
-		field := fields[i]                            // 当前字段
+		docID := db.msg.GetDocID(conversationID, seq)
+		index := db.msg.GetMsgIndex(seq)
+		field := fields[i]
 		switch key {
-		case updateKeyMsg: // 普通消息
-			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "msg", field) // 更新消息内容
-		case updateKeyRevoke: // 撤回消息
-			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "revoke", field) // 更新撤回内容
+		case updateKeyMsg:
+			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "msg", field)
+		case updateKeyRevoke:
+			res, err = db.msgDocDatabase.UpdateMsg(ctx, docID, index, "revoke", field)
 		}
 		if err != nil {
 			return false, err
 		}
-		return res.MatchedCount > 0, nil // true表示已存在并更新
+		return res.MatchedCount > 0, nil
 	}
-	tryUpdate := true // 初始尝试更新模式
+	tryUpdate := true
 	for i := 0; i < len(fields); i++ {
-		seq := firstSeq + int64(i) // 当前消息序列号
+		seq := firstSeq + int64(i) // 当前seq
 		if tryUpdate {
-			matched, err := updateMsgModel(seq, i) // 尝试更新数据库
+			matched, err := updateMsgModel(seq, i)
 			if err != nil {
 				return err
 			}
 			if matched {
-				continue // 更新成功则跳过当前数据
+				continue // 匹配到了，继续下一个(不一定修改)
 			}
 		}
-		// 构造待插入的消息文档
 		doc := unrelationtb.MsgDocModel{
-			DocID: db.msg.GetDocID(conversationID, seq),    // 文档ID
-			Msg:   make([]*unrelationtb.MsgInfoModel, num), // 初始化消息列表
+			DocID: db.msg.GetDocID(conversationID, seq),
+			Msg:   make([]*unrelationtb.MsgInfoModel, num),
 		}
-		var insert int                     // 插入的数据数量
-		for j := i; j < len(fields); j++ { // 组装同一个文档内的所有消息
+		var insert int // 插入的数量
+		for j := i; j < len(fields); j++ {
 			seq = firstSeq + int64(j)
-			if db.msg.GetDocID(conversationID, seq) != doc.DocID { // 超出当前文档则退出
+			if db.msg.GetDocID(conversationID, seq) != doc.DocID {
 				break
 			}
 			insert++
 			switch key {
-			case updateKeyMsg: // 普通消息
+			case updateKeyMsg:
 				doc.Msg[db.msg.GetMsgIndex(seq)] = &unrelationtb.MsgInfoModel{
-					Msg: fields[j].(*unrelationtb.MsgDataModel), // 填充消息数据
+					Msg: fields[j].(*unrelationtb.MsgDataModel),
 				}
-			case updateKeyRevoke: // 撤回消息
+			case updateKeyRevoke:
 				doc.Msg[db.msg.GetMsgIndex(seq)] = &unrelationtb.MsgInfoModel{
-					Revoke: fields[j].(*unrelationtb.RevokeModel), // 填充撤回数据
+					Revoke: fields[j].(*unrelationtb.RevokeModel),
 				}
 			}
 		}
-		// 补全空位
 		for i, model := range doc.Msg {
 			if model == nil {
 				model = &unrelationtb.MsgInfoModel{}
@@ -298,19 +270,18 @@ func (db *commonMsgDatabase) BatchInsertBlock(ctx context.Context, conversationI
 				doc.Msg[i].DelList = []string{}
 			}
 		}
-		// 插入数据库
 		if err := db.msgDocDatabase.Create(ctx, &doc); err != nil {
-			if mongo.IsDuplicateKeyError(err) { // 已存在则下次尝试更新
-				i--              // 当前数据已插入，回退索引
-				tryUpdate = true // 下一个块采用更新模式
+			if mongo.IsDuplicateKeyError(err) {
+				i--              // 存在并发,重试当前数据
+				tryUpdate = true // 以修改模式
 				continue
 			}
-			return err // 其他错误直接返回
+			return err
 		}
-		tryUpdate = false // 当前块插入成功，下一个块优先尝试插入
+		tryUpdate = false // 当前以插入成功,下一块优先插入模式
 		i += insert - 1   // 跳过已插入的数据
 	}
-	return nil // 批量插入完成
+	return nil
 }
 
 func (db *commonMsgDatabase) BatchInsertChat2DB(ctx context.Context, conversationID string, msgList []*sdkws.MsgData, currentMaxSeq int64) error {
@@ -354,6 +325,7 @@ func (db *commonMsgDatabase) BatchInsertChat2DB(ctx context.Context, conversatio
 			AtUserIDList:     msg.AtUserIDList,
 			AttachedInfo:     msg.AttachedInfo,
 			Ex:               msg.Ex,
+			KeyVersion:       msg.KeyVersion,
 		}
 	}
 	return db.BatchInsertBlock(ctx, conversationID, msgs, updateKeyMsg, msgList[0].Seq)
@@ -386,68 +358,47 @@ func (db *commonMsgDatabase) DelUserDeleteMsgsList(ctx context.Context, conversa
 	db.cache.DelUserDeleteMsgsList(ctx, conversationID, seqs)
 }
 
-// 定义函数BatchInsertChat2Cache，接收上下文、会话ID和消息列表，返回最后序列号、是否为新会话和错误
 func (db *commonMsgDatabase) BatchInsertChat2Cache(ctx context.Context, conversationID string, msgs []*sdkws.MsgData) (seq int64, isNew bool, err error) {
-	// 从缓存中获取当前会话的最大序列号
 	currentMaxSeq, err := db.cache.GetMaxSeq(ctx, conversationID)
-	// 如果发生错误且不是redis.Nil（键不存在），则记录错误并返回
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		log.ZError(ctx, "db.cache.GetMaxSeq", err)
 		return 0, false, err
 	}
-	// 获取消息列表长度
 	lenList := len(msgs)
-	// 检查消息数量是否超过单次允许的最大数量
 	if int64(lenList) > db.msg.GetSingleGocMsgNum() {
 		return 0, false, errors.New("too large")
 	}
-	// 检查消息列表是否为空
 	if lenList < 1 {
 		return 0, false, errors.New("too short as 0")
 	}
-	// 如果错误是redis.Nil（键不存在），说明是新会话
 	if errs.Unwrap(err) == redis.Nil {
 		isNew = true
 	}
-	// 保存初始的最大序列号（作为返回值）
 	lastMaxSeq := currentMaxSeq
-	// 创建用户序列号映射，记录每个用户的最新消息序列号
 	userSeqMap := make(map[string]int64)
-	// 遍历消息列表，为每条消息分配递增的序列号
 	for _, m := range msgs {
-		currentMaxSeq++              // 序列号自增
-		m.Seq = currentMaxSeq        // 为消息设置序列号
-		userSeqMap[m.SendID] = m.Seq // 更新用户最新序列号映射
+		currentMaxSeq++
+		m.Seq = currentMaxSeq
+		userSeqMap[m.SendID] = m.Seq
 	}
-	// 将消息批量写入缓存，返回失败数量
 	failedNum, err := db.cache.SetMessageToCache(ctx, conversationID, msgs)
-	// 如果写入缓存失败
 	if err != nil {
-		// 记录失败数量的指标
 		prommetrics.MsgInsertRedisFailedCounter.Add(float64(failedNum))
-		// 记录错误日志
 		log.ZError(ctx, "setMessageToCache error", err, "len", len(msgs), "conversationID", conversationID)
 	} else {
-		// 记录成功的指标
 		prommetrics.MsgInsertRedisSuccessCounter.Inc()
 	}
-	// 更新缓存中的最大序列号
 	err = db.cache.SetMaxSeq(ctx, conversationID, currentMaxSeq)
 	if err != nil {
-		// 记录更新序列号失败的日志和指标
 		log.ZError(ctx, "db.cache.SetMaxSeq error", err, "conversationID", conversationID)
 		prommetrics.SeqSetFailedCounter.Inc()
 	}
-
-	// 设置用户已读序列号
-	err = db.cache.SetHasReadSeqs(ctx, conversationID, userSeqMap)
+	err2 := db.cache.SetHasReadSeqs(ctx, conversationID, userSeqMap)
 	if err != nil {
-		// 记录设置已读序列号失败的日志和指标
-		log.ZError(ctx, "SetHasReadSeqs error", err, "userSeqMap", userSeqMap, "conversationID", conversationID)
+		log.ZError(ctx, "SetHasReadSeqs error", err2, "userSeqMap", userSeqMap, "conversationID", conversationID)
 		prommetrics.SeqSetFailedCounter.Inc()
 	}
-	// 返回最后使用的序列号、是否为新会话和包装后的错误
-	return lastMaxSeq, isNew, errs.Wrap(err)
+	return lastMaxSeq, isNew, utils.Wrap(err, "")
 }
 
 func (db *commonMsgDatabase) getMsgBySeqs(ctx context.Context, userID, conversationID string, seqs []int64) (totalMsgs []*sdkws.MsgData, err error) {
@@ -532,38 +483,21 @@ func (db *commonMsgDatabase) findMsgInfoBySeq(ctx context.Context, userID, docID
 	return msgs, err
 }
 
-// getMsgBySeqsRange 根据序列范围获取消息
-// ctx: 上下文，用于传递请求上下文信息
-// userID: 用户ID，标识当前操作的用户
-// conversationID: 会话ID，标识要获取消息的会话
-// allSeqs: 所有需要查询的消息序列列表
-// begin: 序列范围的起始值
-// end: 序列范围的结束值
-// 返回值: 符合条件的消息列表；以及可能的错误
 func (db *commonMsgDatabase) getMsgBySeqsRange(ctx context.Context, userID string, conversationID string, allSeqs []int64, begin, end int64) (seqMsgs []*sdkws.MsgData, err error) {
-	// 输出调试日志，记录当前方法参数信息（会话ID、所有序列、起始序列、结束序列）
 	log.ZDebug(ctx, "getMsgBySeqsRange", "conversationID", conversationID, "allSeqs", allSeqs, "begin", begin, "end", end)
-	// 遍历消息存储中获取的文档ID与序列的映射关系（按会话ID和所有序列筛选）
 	for docID, seqs := range db.msg.GetDocIDSeqsMap(conversationID, allSeqs) {
-		// 输出调试日志，记录当前文档ID及对应的序列列表
 		log.ZDebug(ctx, "getMsgBySeqsRange", "docID", docID, "seqs", seqs)
-		// 根据文档ID、会话ID和序列列表查询消息详情
 		msgs, err := db.findMsgInfoBySeq(ctx, userID, docID, conversationID, seqs)
 		if err != nil {
-			// 若查询失败，返回错误
 			return nil, err
 		}
-		// 遍历查询到的消息，处理消息的已读状态并转换格式
 		for _, msg := range msgs {
-			// 若消息标记为已读，则同步设置消息体的已读状态
 			if msg.IsRead {
 				msg.Msg.IsRead = true
 			}
-			// 将数据库格式的消息转换为protobuf格式，并添加到结果列表中
 			seqMsgs = append(seqMsgs, convert.MsgDB2Pb(msg.Msg))
 		}
 	}
-	// 返回处理后的的消息列表和空错误（表示成功）
 	return seqMsgs, nil
 }
 
@@ -586,86 +520,51 @@ func (db *commonMsgDatabase) getMsgBySeqsRange(ctx context.Context, userID strin
 // For new users joining the group, if they don't need to receive old messages,
 // "userMinSeq" can be set as the same value as the conversation's "maxSeq" at the moment they join the group.
 // This ensures that their message retrieval starts from the point they joined.
-// GetMsgBySeqsRange在群聊的上下文中，我们有以下参数：
-//
-// 对话的“maxSeq”：它表示组对话中消息的最大值。
-// 对话的“minSeq”（默认值：1）：它表示组对话中消息的最小值。
-//
-// 对于用户对群组对话的看法，我们有以下参数：
-//
-// “userMaxSeq”：表示用户在组中检索消息的上限。如果未设置（默认值：0），
-// 这意味着上限与对话的“maxSeq”相同。
-// “userMinSeq”：它代表用户在组中检索消息的起点。如果未设置（默认值：0），
-// 这意味着起点与对话的“minSeq”相同。
-//
-// 这些参数的场景如下：
-//
-// 对于被踢出组的用户，可以将“userMaxSeq”设置为他们之前的最大值
-// 被踢出去。这限制了他们在一定程度上检索消息的能力。
-// 对于加入群组的新用户，如果他们不需要接收旧消息，
-// “userMinSeq”可以设置为与会话在加入组时的“maxSeq”相同的值。
-// 这确保了他们的消息检索从他们加入的点开始。
 func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID string, conversationID string, begin, end, num, userMaxSeq int64) (int64, int64, []*sdkws.MsgData, error) {
-
-	// 从缓存获取用户在该会话中的最小可检索序列（userMinSeq）
 	userMinSeq, err := db.cache.GetConversationUserMinSeq(ctx, conversationID, userID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
-		// 非缓存未命中错误，返回错误
-
 		return 0, 0, nil, err
 	}
-	// 从缓存获取会话的全局最小序列（minSeq）
 	minSeq, err := db.cache.GetMinSeq(ctx, conversationID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		return 0, 0, nil, err
 	}
-
-	// 确定用户实际可检索的最小序列：取userMinSeq和会话minSeq中的较大值
 	if userMinSeq > minSeq {
 		minSeq = userMinSeq
 	}
-
 	//"minSeq" represents the startSeq value that the user can retrieve.
-	// 如果用户可检索的最小序列大于请求的结束序列，说明无消息可返回
 	if minSeq > end {
 		log.ZInfo(ctx, "minSeq > end", "minSeq", minSeq, "end", end)
 		return 0, 0, nil, nil
 	}
-	//// 从缓存获取会话的全局最大序列（maxSeq）
 	maxSeq, err := db.cache.GetMaxSeq(ctx, conversationID)
 	if err != nil && errs.Unwrap(err) != redis.Nil {
 		return 0, 0, nil, err
 	}
 	log.ZDebug(ctx, "GetMsgBySeqsRange", "userMinSeq", userMinSeq, "conMinSeq", minSeq, "conMaxSeq", maxSeq, "userMaxSeq", userMaxSeq)
-	// 确定用户实际可检索的最大序列：若userMaxSeq非0且小于全局maxSeq，则使用userMaxSeq
 	if userMaxSeq != 0 {
 		if userMaxSeq < maxSeq {
 			maxSeq = userMaxSeq
 		}
 	}
 	//"maxSeq" represents the endSeq value that the user can retrieve.
-	// 修正请求的起始序列：若小于用户可检索的最小序列，则调整为minSeq
+
 	if begin < minSeq {
 		begin = minSeq
 	}
-	// 修正请求的结束序列：若大于用户可检索的最大序列，则调整为maxSeq
 	if end > maxSeq {
 		end = maxSeq
 	}
-	//“start”和“end”表示用户可以检索的实际startSeq和endSeq值。
 	//"begin" and "end" represent the actual startSeq and endSeq values that the user can retrieve.
 	if end < begin {
 		return 0, 0, nil, errs.ErrArgs.Wrap("seq end < begin")
 	}
-	// 生成待查询的序列列表
 	var seqs []int64
-	// 如果序列范围内的消息数量小于等于请求的最大数量，获取所有序列
 	if end-begin+1 <= num {
 		for i := begin; i <= end; i++ {
 			seqs = append(seqs, i)
 		}
 	} else {
-		// 否则从结束序列向前取num个序列
 		for i := end - num + 1; i <= end; i++ {
 			seqs = append(seqs, i)
 		}
@@ -683,16 +582,12 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 	//		break
 	//	}
 	//}
-
-	// 若序列列表为空，返回空结果
 	if len(seqs) == 0 {
 		return 0, 0, nil, nil
 	}
-	// 记录实际查询的序列范围（列表的第一个和最后一个序列）
 	newBegin := seqs[0]
 	newEnd := seqs[len(seqs)-1]
 	log.ZDebug(ctx, "GetMsgBySeqsRange", "first seqs", seqs, "newBegin", newBegin, "newEnd", newEnd)
-	// 从缓存中批量获取消息：返回命中的消息、未命中的序列、可能的错误
 	cachedMsgs, failedSeqs, err := db.cache.GetMessagesBySeq(ctx, conversationID, seqs)
 	if err != nil {
 		if err != redis.Nil {
@@ -700,19 +595,14 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 			log.ZError(ctx, "get message from redis exception", err, "conversationID", conversationID, "seqs", seqs)
 		}
 	}
-	// 存储最终有效的消息列表
 	var successMsgs []*sdkws.MsgData
-	// 处理缓存中命中的消息
 	if len(cachedMsgs) > 0 {
-		// 获取用户在该会话中删除的消息序列列表
 		delSeqs, err := db.cache.GetUserDelList(ctx, userID, conversationID)
 		if err != nil && errs.Unwrap(err) != redis.Nil {
 			return 0, 0, nil, err
 		}
-		// 过滤掉已删除的消息
-		var cacheDelNum int // 记录缓存中被删除的消息数量
+		var cacheDelNum int
 		for _, msg := range cachedMsgs {
-			// 若消息序列不在删除列表中，则加入有效消息列表
 			if !utils.Contain(msg.Seq, delSeqs...) {
 				successMsgs = append(successMsgs, msg)
 			} else {
@@ -720,24 +610,19 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 			}
 		}
 		log.ZDebug(ctx, "get delSeqs from redis", "delSeqs", delSeqs, "userID", userID, "conversationID", conversationID, "cacheDelNum", cacheDelNum)
-
-		// 补充获取被删除的消息数量（从起始序列向前找）
 		var reGetSeqsCache []int64
 		for i := 1; i <= cacheDelNum; {
-			newSeq := newBegin - int64(i) // 从实际起始序列向前计算补充的序列
-			if newSeq >= begin {          // 确保补充的序列在请求的起始范围内
-				// 若补充的序列不在删除列表中，则加入待查询列表
+			newSeq := newBegin - int64(i)
+			if newSeq >= begin {
 				if !utils.Contain(newSeq, delSeqs...) {
 					log.ZDebug(ctx, "seq del in cache, a new seq in range append", "new seq", newSeq)
 					reGetSeqsCache = append(reGetSeqsCache, newSeq)
-					i++ //找到一个有效序列后，继续找下一个
+					i++
 				}
 			} else {
-				// 超出请求的起始范围，停止补充
 				break
 			}
 		}
-		// 若有需要补充的序列，再次从缓存获取
 		if len(reGetSeqsCache) > 0 {
 			log.ZDebug(ctx, "reGetSeqsCache", "reGetSeqsCache", reGetSeqsCache)
 			cachedMsgs, failedSeqs2, err := db.cache.GetMessagesBySeq(ctx, conversationID, reGetSeqsCache)
@@ -747,9 +632,7 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 					log.ZError(ctx, "get message from redis exception", err, "conversationID", conversationID, "seqs", reGetSeqsCache)
 				}
 			}
-			// 合并未命中的序列
 			failedSeqs = append(failedSeqs, failedSeqs2...)
-			// 合并补充获取的有效消息
 			successMsgs = append(successMsgs, cachedMsgs...)
 		}
 	}
@@ -758,18 +641,16 @@ func (db *commonMsgDatabase) GetMsgBySeqsRange(ctx context.Context, userID strin
 		log.ZDebug(ctx, "msgs not exist in redis", "seqs", failedSeqs)
 	}
 	// get from cache or db
-	// 处理缓存未命中的序列（从数据库获取）
+
 	if len(failedSeqs) > 0 {
 		mongoMsgs, err := db.getMsgBySeqsRange(ctx, userID, conversationID, failedSeqs, begin, end)
 		if err != nil {
 
 			return 0, 0, nil, err
 		}
-		// 合并数据库获取的消息和缓存获取的消息
 		successMsgs = append(mongoMsgs, successMsgs...)
 	}
 
-	// 返回实际可检索的最小序列、最大序列、最终消息列表和空错误
 	return minSeq, maxSeq, successMsgs, nil
 }
 
@@ -863,7 +744,7 @@ func (db *commonMsgDatabase) UserMsgsDestruct(ctx context.Context, userID string
 					log.ZError(ctx, "deleteMsgRecursion GetUserMsgListByIndex failed", err, "conversationID", conversationID, "index", index)
 				}
 			}
-			// If an error is reported, or the error cannot be obtained, it is physically deleted and seq delMongoMsgsPhysical(delStruct.delDocIDList) is returned to end the recursion
+			// 获取报错，或者获取不到了，物理删除并且返回seq delMongoMsgsPhysical(delStruct.delDocIDList), 结束递归
 			break
 		}
 		index++
@@ -918,7 +799,7 @@ func (d *delMsgRecursionStruct) getSetMinSeq() int64 {
 // index 0....19(del) 20...69
 // seq 70
 // set minSeq 21
-// recursion deletes the list and returns the set minimum seq.
+// recursion 删除list并且返回设置的最小seq.
 func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversationID string, index int64, delStruct *delMsgRecursionStruct, remainTime int64) (int64, error) {
 	// find from oldest list
 	msgDocModel, err := db.msgDocDatabase.GetMsgDocModelByIndex(ctx, conversationID, index, 1)
@@ -930,8 +811,7 @@ func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversatio
 				log.ZError(ctx, "deleteMsgRecursion GetUserMsgListByIndex failed", err, "conversationID", conversationID, "index", index)
 			}
 		}
-		//如果报告了错误，或者无法获得错误，则会将其物理删除，并返回seq-delMongoMsgsPhysical（delStruct.delDocIDList）以结束递归
-		// If an error is reported, or the error cannot be obtained, it is physically deleted and seq delMongoMsgsPhysical(delStruct.delDocIDList) is returned to end the recursion
+		// 获取报错，或者获取不到了，物理删除并且返回seq delMongoMsgsPhysical(delStruct.delDocIDList), 结束递归
 		err = db.msgDocDatabase.DeleteDocs(ctx, delStruct.delDocIDs)
 		if err != nil {
 			return 0, err
@@ -956,7 +836,7 @@ func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversatio
 			}
 		}
 		if len(delMsgIndexs) > 0 {
-			if err = db.msgDocDatabase.DeleteMsgsInOneDocByIndex(ctx, msgDocModel.DocID, delMsgIndexs); err != nil {
+			if err := db.msgDocDatabase.DeleteMsgsInOneDocByIndex(ctx, msgDocModel.DocID, delMsgIndexs); err != nil {
 				log.ZError(ctx, "deleteMsgRecursion DeleteMsgsInOneDocByIndex failed", err, "conversationID", conversationID, "index", index)
 			}
 			delStruct.minSeq = int64(msgDocModel.Msg[delMsgIndexs[len(delMsgIndexs)-1]].Msg.Seq)
@@ -1037,9 +917,6 @@ func (db *commonMsgDatabase) GetMaxSeqs(ctx context.Context, conversationIDs []s
 	return db.cache.GetMaxSeqs(ctx, conversationIDs)
 }
 
-func (db *commonMsgDatabase) DelUserSeq(ctx context.Context, uid string, conversationID string) error {
-	return db.cache.DelUserSeqCache(ctx, uid, conversationID)
-}
 func (db *commonMsgDatabase) GetMaxSeq(ctx context.Context, conversationID string) (int64, error) {
 	return db.cache.GetMaxSeq(ctx, conversationID)
 }

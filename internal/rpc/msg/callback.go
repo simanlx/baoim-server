@@ -17,17 +17,24 @@ package msg
 import (
 	"context"
 
-	cbapi "BaoIM-Server/pkg/callbackstruct"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/http"
+	"baoim/protocol/sdkws"
+	"google.golang.org/protobuf/proto"
+
 	"baoim/protocol/constant"
 	pbchat "baoim/protocol/msg"
-	"baoim/protocol/sdkws"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"baoim/tools/utils"
-	"google.golang.org/protobuf/proto"
+
+	cbapi "BaoIM-Server/pkg/callbackstruct"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/http"
 )
+
+func cbURL() string {
+	return config.Config.Callback.CallbackUrl
+}
 
 func toCommonCallback(ctx context.Context, msg *pbchat.SendMsgReq, command string) cbapi.CommonCallbackReq {
 	return cbapi.CommonCallbackReq{
@@ -62,8 +69,8 @@ func GetContent(msg *sdkws.MsgData) string {
 	}
 }
 
-func callbackBeforeSendSingleMsg(ctx context.Context, globalConfig *config.GlobalConfig, msg *pbchat.SendMsgReq) error {
-	if !globalConfig.Callback.CallbackBeforeSendSingleMsg.Enable || msg.MsgData.ContentType == constant.Typing {
+func callbackBeforeSendSingleMsg(ctx context.Context, msg *pbchat.SendMsgReq) error {
+	if !config.Config.Callback.CallbackBeforeSendSingleMsg.Enable {
 		return nil
 	}
 	req := &cbapi.CallbackBeforeSendSingleMsgReq{
@@ -71,14 +78,14 @@ func callbackBeforeSendSingleMsg(ctx context.Context, globalConfig *config.Globa
 		RecvID:            msg.MsgData.RecvID,
 	}
 	resp := &cbapi.CallbackBeforeSendSingleMsgResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackBeforeSendSingleMsg); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackBeforeSendSingleMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
-func callbackAfterSendSingleMsg(ctx context.Context, globalConfig *config.GlobalConfig, msg *pbchat.SendMsgReq) error {
-	if !globalConfig.Callback.CallbackAfterSendSingleMsg.Enable || msg.MsgData.ContentType == constant.Typing {
+func callbackAfterSendSingleMsg(ctx context.Context, msg *pbchat.SendMsgReq) error {
+	if !config.Config.Callback.CallbackAfterSendSingleMsg.Enable {
 		return nil
 	}
 	req := &cbapi.CallbackAfterSendSingleMsgReq{
@@ -86,14 +93,14 @@ func callbackAfterSendSingleMsg(ctx context.Context, globalConfig *config.Global
 		RecvID:            msg.MsgData.RecvID,
 	}
 	resp := &cbapi.CallbackAfterSendSingleMsgResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackAfterSendSingleMsg); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackAfterSendSingleMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
-func callbackBeforeSendGroupMsg(ctx context.Context, globalConfig *config.GlobalConfig, msg *pbchat.SendMsgReq) error {
-	if !globalConfig.Callback.CallbackBeforeSendGroupMsg.Enable || msg.MsgData.ContentType == constant.Typing {
+func callbackBeforeSendGroupMsg(ctx context.Context, msg *pbchat.SendMsgReq) error {
+	if !config.Config.Callback.CallbackBeforeSendGroupMsg.Enable {
 		return nil
 	}
 	req := &cbapi.CallbackBeforeSendGroupMsgReq{
@@ -101,14 +108,14 @@ func callbackBeforeSendGroupMsg(ctx context.Context, globalConfig *config.Global
 		GroupID:           msg.MsgData.GroupID,
 	}
 	resp := &cbapi.CallbackBeforeSendGroupMsgResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackBeforeSendGroupMsg); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackBeforeSendGroupMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
-func callbackAfterSendGroupMsg(ctx context.Context, globalConfig *config.GlobalConfig, msg *pbchat.SendMsgReq) error {
-	if !globalConfig.Callback.CallbackAfterSendGroupMsg.Enable || msg.MsgData.ContentType == constant.Typing {
+func callbackAfterSendGroupMsg(ctx context.Context, msg *pbchat.SendMsgReq) error {
+	if !config.Config.Callback.CallbackAfterSendGroupMsg.Enable {
 		return nil
 	}
 	req := &cbapi.CallbackAfterSendGroupMsgReq{
@@ -116,21 +123,21 @@ func callbackAfterSendGroupMsg(ctx context.Context, globalConfig *config.GlobalC
 		GroupID:           msg.MsgData.GroupID,
 	}
 	resp := &cbapi.CallbackAfterSendGroupMsgResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackAfterSendGroupMsg); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackAfterSendGroupMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
-func callbackMsgModify(ctx context.Context, globalConfig *config.GlobalConfig, msg *pbchat.SendMsgReq) error {
-	if !globalConfig.Callback.CallbackMsgModify.Enable || msg.MsgData.ContentType != constant.Text {
+func callbackMsgModify(ctx context.Context, msg *pbchat.SendMsgReq) error {
+	if !config.Config.Callback.CallbackMsgModify.Enable || msg.MsgData.ContentType != constant.Text {
 		return nil
 	}
 	req := &cbapi.CallbackMsgModifyCommandReq{
 		CommonCallbackReq: toCommonCallback(ctx, msg, cbapi.CallbackMsgModifyCommand),
 	}
 	resp := &cbapi.CallbackMsgModifyCommandResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackMsgModify); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackMsgModify); err != nil {
 		return err
 	}
 	if resp.Content != nil {
@@ -155,34 +162,34 @@ func callbackMsgModify(ctx context.Context, globalConfig *config.GlobalConfig, m
 	log.ZDebug(ctx, "callbackMsgModify", "msg", msg.MsgData)
 	return nil
 }
-func CallbackGroupMsgRead(ctx context.Context, globalConfig *config.GlobalConfig, req *cbapi.CallbackGroupMsgReadReq) error {
-	if !globalConfig.Callback.CallbackGroupMsgRead.Enable {
+func CallbackGroupMsgRead(ctx context.Context, req *cbapi.CallbackGroupMsgReadReq) error {
+	if !config.Config.Callback.CallbackGroupMsgRead.Enable || req.ContentType != constant.Text {
 		return nil
 	}
 	req.CallbackCommand = cbapi.CallbackGroupMsgReadCommand
 
 	resp := &cbapi.CallbackGroupMsgReadResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackGroupMsgRead); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackMsgModify); err != nil {
 		return err
 	}
 	return nil
 }
 
-func CallbackSingleMsgRead(ctx context.Context, globalConfig *config.GlobalConfig, req *cbapi.CallbackSingleMsgReadReq) error {
-	if !globalConfig.Callback.CallbackSingleMsgRead.Enable {
+func CallbackSingleMsgRead(ctx context.Context, req *cbapi.CallbackSingleMsgReadReq) error {
+	if !config.Config.Callback.CallbackSingleMsgRead.Enable || req.ContentType != constant.Text {
 		return nil
 	}
 	req.CallbackCommand = cbapi.CallbackSingleMsgRead
 
 	resp := &cbapi.CallbackSingleMsgReadResp{}
 
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, req, resp, globalConfig.Callback.CallbackSingleMsgRead); err != nil {
+	if err := http.CallBackPostReturn(ctx, cbURL(), req, resp, config.Config.Callback.CallbackMsgModify); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackAfterRevokeMsg(ctx context.Context, globalConfig *config.GlobalConfig, req *pbchat.RevokeMsgReq) error {
-	if !globalConfig.Callback.CallbackAfterRevokeMsg.Enable {
+func CallbackAfterRevokeMsg(ctx context.Context, req *pbchat.RevokeMsgReq) error {
+	if !config.Config.Callback.CallbackAfterRevokeMsg.Enable {
 		return nil
 	}
 	callbackReq := &cbapi.CallbackAfterRevokeMsgReq{
@@ -192,7 +199,7 @@ func CallbackAfterRevokeMsg(ctx context.Context, globalConfig *config.GlobalConf
 		UserID:          req.UserID,
 	}
 	resp := &cbapi.CallbackAfterRevokeMsgResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, callbackReq, resp, globalConfig.Callback.CallbackAfterRevokeMsg); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, callbackReq, resp, config.Config.Callback.CallbackAfterRevokeMsg); err != nil {
 		return err
 	}
 	return nil

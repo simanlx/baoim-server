@@ -17,18 +17,18 @@ package notification
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/rpcclient"
 	"baoim/protocol/constant"
 	"baoim/protocol/sdkws"
+
+	"BaoIM-Server/pkg/rpcclient"
 )
 
 type MsgNotificationSender struct {
 	*rpcclient.NotificationSender
 }
 
-func NewMsgNotificationSender(config *config.GlobalConfig, opts ...rpcclient.NotificationSenderOptions) *MsgNotificationSender {
-	return &MsgNotificationSender{rpcclient.NewNotificationSender(config, opts...)}
+func NewMsgNotificationSender(opts ...rpcclient.NotificationSenderOptions) *MsgNotificationSender {
+	return &MsgNotificationSender{rpcclient.NewNotificationSender(opts...)}
 }
 
 func (m *MsgNotificationSender) UserDeleteMsgsNotification(ctx context.Context, userID, conversationID string, seqs []int64) error {

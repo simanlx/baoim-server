@@ -14,28 +14,19 @@
 
 package push
 
-import (
-	"context"
-
-	"BaoIM-Server/pkg/common/config"
-)
-
 type Consumer struct {
-	pushCh ConsumerHandler
-	// successCount is unused
-	// successCount uint64
+	pushCh       ConsumerHandler
+	successCount uint64
 }
 
-func NewConsumer(config *config.GlobalConfig, pusher *Pusher) (*Consumer, error) {
-	c, err := NewConsumerHandler(config, pusher)
-	if err != nil {
-		return nil, err
-	}
+func NewConsumer(pusher *Pusher) *Consumer {
 	return &Consumer{
-		pushCh: *c,
-	}, nil
+		pushCh: *NewConsumerHandler(pusher),
+	}
 }
 
 func (c *Consumer) Start() {
-	go c.pushCh.pushConsumerGroup.RegisterHandleAndConsumer(context.Background(), &c.pushCh)
+	// statistics.NewStatistics(&c.successCount, config.Config.ModuleName.PushName, fmt.Sprintf("%d second push to
+	// msg_gateway count", constant.StatisticsTimeInterval), constant.StatisticsTimeInterval)
+	go c.pushCh.pushConsumerGroup.RegisterHandleAndConsumer(&c.pushCh)
 }

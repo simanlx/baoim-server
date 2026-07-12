@@ -18,7 +18,7 @@ import (
 	"sync"
 
 	"BaoIM-Server/pkg/common/config"
-	"baoim/tools/errs"
+
 	"github.com/IBM/sarama"
 )
 
@@ -30,42 +30,28 @@ type Consumer struct {
 	Consumer      sarama.Consumer
 }
 
-func NewKafkaConsumer(addr []string, topic string, config *config.GlobalConfig) (*Consumer, error) {
+func NewKafkaConsumer(addr []string, topic string) *Consumer {
 	p := Consumer{}
 	p.Topic = topic
 	p.addr = addr
 	consumerConfig := sarama.NewConfig()
-	if config.Kafka.Username != "" && config.Kafka.Password != "" {
+	if config.Config.Kafka.Username != "" && config.Config.Kafka.Password != "" {
 		consumerConfig.Net.SASL.Enable = true
-		consumerConfig.Net.SASL.User = config.Kafka.Username
-		consumerConfig.Net.SASL.Password = config.Kafka.Password
+		consumerConfig.Net.SASL.User = config.Config.Kafka.Username
+		consumerConfig.Net.SASL.Password = config.Config.Kafka.Password
 	}
-	var tlsConfig *TLSConfig
-	if config.Kafka.TLS != nil {
-		tlsConfig = &TLSConfig{
-			CACrt:              config.Kafka.TLS.CACrt,
-			ClientCrt:          config.Kafka.TLS.ClientCrt,
-			ClientKey:          config.Kafka.TLS.ClientKey,
-			ClientKeyPwd:       config.Kafka.TLS.ClientKeyPwd,
-			InsecureSkipVerify: false,
-		}
-	}
-	err := SetupTLSConfig(consumerConfig, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
+	SetupTLSConfig(consumerConfig)
 	consumer, err := sarama.NewConsumer(p.addr, consumerConfig)
 	if err != nil {
-		return nil, errs.Wrap(err, "NewKafkaConsumer: creating consumer failed")
+		panic(err.Error())
 	}
 	p.Consumer = consumer
 
 	partitionList, err := consumer.Partitions(p.Topic)
 	if err != nil {
-		return nil, errs.Wrap(err, "NewKafkaConsumer: getting partitions failed")
+		panic(err.Error())
 	}
 	p.PartitionList = partitionList
 
-	return &p, nil
-
+	return &p
 }

@@ -15,8 +15,6 @@
 package cache
 
 import (
-	"BaoIM-Server/pkg/common/cachekey"
-	"BaoIM-Server/pkg/common/config"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,17 +23,21 @@ import (
 	"time"
 
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
+
+	"baoim/tools/log"
+
 	"baoim/protocol/constant"
+
 	"baoim/protocol/user"
 	"baoim/tools/errs"
-	"baoim/tools/log"
+
 	"github.com/dtm-labs/rockscache"
 	"github.com/redis/go-redis/v9"
 )
 
 const (
-	userExpireTime = time.Second * 60 * 60 * 12
-	//userInfoKey               = "USER_INFO:"
+	userExpireTime            = time.Second * 60 * 60 * 12
+	userInfoKey               = "USER_INFO:"
 	userGlobalRecvMsgOptKey   = "USER_GLOBAL_RECV_MSG_OPT_KEY:"
 	olineStatusKey            = "ONLINE_STATUS:"
 	userOlineStatusExpireTime = time.Second * 60 * 60 * 24
@@ -70,11 +72,7 @@ func NewUserCacheRedis(
 	options rockscache.Options,
 ) UserCache {
 	rcClient := rockscache.NewClient(rdb, options)
-	mc := NewMetaCacheRedis(rcClient)
-	u := config.Config.LocalCache.User
-	log.ZDebug(context.Background(), "user local cache init", "Topic", u.Topic, "SlotNum", u.SlotNum, "SlotSize", u.SlotSize, "enable", u.Enable())
-	mc.SetTopic(u.Topic)
-	mc.SetRawRedisClient(rdb)
+
 	return &UserCacheRedis{
 		rdb:        rdb,
 		metaCache:  NewMetaCacheRedis(rcClient),
@@ -87,7 +85,7 @@ func NewUserCacheRedis(
 func (u *UserCacheRedis) NewCache() UserCache {
 	return &UserCacheRedis{
 		rdb:        u.rdb,
-		metaCache:  u.Copy(),
+		metaCache:  NewMetaCacheRedis(u.rcClient, u.metaCache.GetPreDelKeys()...),
 		userDB:     u.userDB,
 		expireTime: u.expireTime,
 		rcClient:   u.rcClient,
@@ -95,17 +93,18 @@ func (u *UserCacheRedis) NewCache() UserCache {
 }
 
 func (u *UserCacheRedis) getUserInfoKey(userID string) string {
-	return cachekey.GetUserInfoKey(userID)
+	return userInfoKey + userID
 }
 
 func (u *UserCacheRedis) getUserGlobalRecvMsgOptKey(userID string) string {
-	return cachekey.GetUserGlobalRecvMsgOptKey(userID)
+	return userGlobalRecvMsgOptKey + userID
 }
 
 func (u *UserCacheRedis) GetUserInfo(ctx context.Context, userID string) (userInfo *relationtb.UserModel, err error) {
 	return getCache(ctx, u.rcClient, u.getUserInfoKey(userID), u.expireTime, func(ctx context.Context) (*relationtb.UserModel, error) {
 		return u.userDB.Take(ctx, userID)
-	})
+	},
+	)
 }
 
 func (u *UserCacheRedis) GetUsersInfo(ctx context.Context, userIDs []string) ([]*relationtb.UserModel, error) {
@@ -202,13 +201,13 @@ func (u *UserCacheRedis) SetUserStatus(ctx context.Context, userID string, statu
 				Status:      constant.Online,
 				PlatformIDs: []int32{platformID},
 			}
-			jsonData, err := json.Marshal(&onlineStatus)
-			if err != nil {
-				return errs.Wrap(err)
+			jsonData, err2 := json.Marshal(&onlineStatus)
+			if err2 != nil {
+				return errs.Wrap(err2)
 			}
-			_, err = u.rdb.HSet(ctx, key, userID, string(jsonData)).Result()
-			if err != nil {
-				return errs.Wrap(err)
+			_, err2 = u.rdb.HSet(ctx, key, userID, string(jsonData)).Result()
+			if err2 != nil {
+				return errs.Wrap(err2)
 			}
 			u.rdb.Expire(ctx, key, userOlineStatusExpireTime)
 
@@ -282,9 +281,9 @@ func (u *UserCacheRedis) refreshStatusOffline(ctx context.Context, userID string
 func (u *UserCacheRedis) refreshStatusOnline(ctx context.Context, userID string, platformID int32, isNil bool, err error, result, key string) error {
 	var onlineStatus user.OnlineStatus
 	if !isNil {
-		err := json.Unmarshal([]byte(result), &onlineStatus)
+		err2 := json.Unmarshal([]byte(result), &onlineStatus)
 		if err != nil {
-			return errs.Wrap(err)
+			return errs.Wrap(err2)
 		}
 		onlineStatus.PlatformIDs = RemoveRepeatedElementsInList(append(onlineStatus.PlatformIDs, platformID))
 	} else {
@@ -294,7 +293,7 @@ func (u *UserCacheRedis) refreshStatusOnline(ctx context.Context, userID string,
 	onlineStatus.UserID = userID
 	newjsonData, err := json.Marshal(&onlineStatus)
 	if err != nil {
-		return errs.Wrap(err, "json.Marshal failed")
+		return errs.Wrap(err)
 	}
 	_, err = u.rdb.HSet(ctx, key, userID, string(newjsonData)).Result()
 	if err != nil {

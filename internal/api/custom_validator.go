@@ -15,20 +15,24 @@
 package api
 
 import (
-	"baoim/protocol/constant"
 	"github.com/go-playground/validator/v10"
+
+	"baoim/protocol/constant"
 )
 
-// RequiredIf validates if the specified field is required based on the session type.
 func RequiredIf(fl validator.FieldLevel) bool {
 	sessionType := fl.Parent().FieldByName("SessionType").Int()
-
 	switch sessionType {
 	case constant.SingleChatType, constant.NotificationChatType:
-		return fl.FieldName() != "RecvID" || fl.Field().String() != ""
+		if fl.FieldName() == "RecvID" {
+			return fl.Field().String() != ""
+		}
 	case constant.GroupChatType, constant.SuperGroupChatType:
-		return fl.FieldName() != "GroupID" || fl.Field().String() != ""
+		if fl.FieldName() == "GroupID" {
+			return fl.Field().String() != ""
+		}
 	default:
 		return true
 	}
+	return true
 }

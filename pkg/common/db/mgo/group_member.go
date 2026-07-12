@@ -17,14 +17,14 @@ package mgo
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/constant"
-	"baoim/tools/errs"
 	"baoim/tools/mgoutil"
 	"baoim/tools/pagination"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func NewGroupMember(db *mongo.Database) (relation.GroupMemberModelInterface, error) {
@@ -37,7 +37,7 @@ func NewGroupMember(db *mongo.Database) (relation.GroupMemberModelInterface, err
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
-		return nil, errs.Wrap(err)
+		return nil, err
 	}
 	return &GroupMemberMgo{coll: coll}, nil
 }

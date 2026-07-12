@@ -18,38 +18,44 @@ import (
 	"context"
 
 	"BaoIM-Server/pkg/authverify"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"baoim/protocol/constant"
-	"baoim/tools/errs"
-	"baoim/tools/tokenverify"
+
 	"github.com/golang-jwt/jwt/v4"
+
+	"baoim/protocol/constant"
+	"baoim/tools/tokenverify"
+	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/db/cache"
 )
 
 type AuthDatabase interface {
-	// If the result is empty, no error is returned.
+	// 结果为空 不返回错误
 	GetTokensWithoutError(ctx context.Context, userID string, platformID int) (map[string]int, error)
-	// Create token
+	// 创建token
 	CreateToken(ctx context.Context, userID string, platformID int) (string, error)
 }
 
 type authDatabase struct {
-	cache        cache.MsgModel
+	cache cache.MsgModel
+
 	accessSecret string
 	accessExpire int64
-	config       *config.GlobalConfig
 }
 
-func NewAuthDatabase(cache cache.MsgModel, accessSecret string, accessExpire int64, config *config.GlobalConfig) AuthDatabase {
-	return &authDatabase{cache: cache, accessSecret: accessSecret, accessExpire: accessExpire, config: config}
+func NewAuthDatabase(cache cache.MsgModel, accessSecret string, accessExpire int64) AuthDatabase {
+	return &authDatabase{cache: cache, accessSecret: accessSecret, accessExpire: accessExpire}
 }
 
-// If the result is empty.
-func (a *authDatabase) GetTokensWithoutError(ctx context.Context, userID string, platformID int) (map[string]int, error) {
+// 结果为空 不返回错误.
+func (a *authDatabase) GetTokensWithoutError(
+	ctx context.Context,
+	userID string,
+	platformID int,
+) (map[string]int, error) {
 	return a.cache.GetTokensWithoutError(ctx, userID, platformID)
 }
 
-// Create Token.
+// 创建token.
 func (a *authDatabase) CreateToken(ctx context.Context, userID string, platformID int) (string, error) {
 	tokens, err := a.cache.GetTokensWithoutError(ctx, userID, platformID)
 	if err != nil {
@@ -57,23 +63,23 @@ func (a *authDatabase) CreateToken(ctx context.Context, userID string, platformI
 	}
 	var deleteTokenKey []string
 	for k, v := range tokens {
-		_, err = tokenverify.GetClaimFromToken(k, authverify.Secret(a.config.Secret))
+		_, err = tokenverify.GetClaimFromToken(k, authverify.Secret())
 		if err != nil || v != constant.NormalToken {
 			deleteTokenKey = append(deleteTokenKey, k)
 		}
 	}
 	if len(deleteTokenKey) != 0 {
-		err = a.cache.DeleteTokenByUidPid(ctx, userID, platformID, deleteTokenKey)
+		err := a.cache.DeleteTokenByUidPid(ctx, userID, platformID, deleteTokenKey)
 		if err != nil {
 			return "", err
 		}
 	}
-
 	claims := tokenverify.BuildClaims(userID, platformID, a.accessExpire)
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(a.accessSecret))
 	if err != nil {
-		return "", errs.Wrap(err, "token.SignedString")
+		return "", utils.Wrap(err, "")
 	}
+
 	return tokenString, a.cache.AddTokenFlag(ctx, userID, platformID, tokenString, constant.NormalToken)
 }

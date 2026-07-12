@@ -23,64 +23,71 @@ import (
 	"strings"
 	"time"
 
-	"BaoIM-Server/pkg/authverify"
 	"BaoIM-Server/pkg/callbackstruct"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/convert"
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/controller"
-	"BaoIM-Server/pkg/common/db/mgo"
-	relationtb "BaoIM-Server/pkg/common/db/table/relation"
-	"BaoIM-Server/pkg/common/db/unrelation"
-	"BaoIM-Server/pkg/msgprocessor"
-	"BaoIM-Server/pkg/rpcclient"
-	"BaoIM-Server/pkg/rpcclient/grouphash"
-	"BaoIM-Server/pkg/rpcclient/notification"
-	"baoim/protocol/constant"
+
 	pbconversation "baoim/protocol/conversation"
+	"baoim/protocol/wrapperspb"
+	"baoim/tools/tx"
+
+	"BaoIM-Server/pkg/common/db/mgo"
+	"BaoIM-Server/pkg/rpcclient/grouphash"
+
+	"BaoIM-Server/pkg/authverify"
+	"BaoIM-Server/pkg/msgprocessor"
+
+	"BaoIM-Server/pkg/rpcclient/notification"
+
+	"baoim/tools/mw/specialerror"
+
+	"BaoIM-Server/pkg/common/convert"
+	"BaoIM-Server/pkg/rpcclient"
+
+	"google.golang.org/grpc"
+
+	"baoim/protocol/constant"
 	pbgroup "baoim/protocol/group"
 	"baoim/protocol/sdkws"
-	"baoim/protocol/wrapperspb"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
-	"baoim/tools/mw/specialerror"
-	"baoim/tools/tx"
 	"baoim/tools/utils"
-	"google.golang.org/grpc"
+
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+	relationtb "BaoIM-Server/pkg/common/db/table/relation"
+	"BaoIM-Server/pkg/common/db/unrelation"
 )
 
-func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	mongo, err := unrelation.NewMongo(config)
+func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	mongo, err := unrelation.NewMongo()
 	if err != nil {
 		return err
 	}
-	rdb, err := cache.NewRedis(config)
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
-	groupDB, err := mgo.NewGroupMongo(mongo.GetDatabase(config.Mongo.Database))
+	groupDB, err := mgo.NewGroupMongo(mongo.GetDatabase())
 	if err != nil {
 		return err
 	}
-	groupMemberDB, err := mgo.NewGroupMember(mongo.GetDatabase(config.Mongo.Database))
+	groupMemberDB, err := mgo.NewGroupMember(mongo.GetDatabase())
 	if err != nil {
 		return err
 	}
-	groupRequestDB, err := mgo.NewGroupRequestMgo(mongo.GetDatabase(config.Mongo.Database))
+	groupRequestDB, err := mgo.NewGroupRequestMgo(mongo.GetDatabase())
 	if err != nil {
 		return err
 	}
-	userRpcClient := rpcclient.NewUserRpcClient(client, config)
-	msgRpcClient := rpcclient.NewMessageRpcClient(client, config)
-	roomRpcClient := rpcclient.NewRoomRpcClient(client, config)
-	conversationRpcClient := rpcclient.NewConversationRpcClient(client, config)
+	userRpcClient := rpcclient.NewUserRpcClient(client)
+	msgRpcClient := rpcclient.NewMessageRpcClient(client)
+	conversationRpcClient := rpcclient.NewConversationRpcClient(client)
 	var gs groupServer
 	database := controller.NewGroupDatabase(rdb, groupDB, groupMemberDB, groupRequestDB, tx.NewMongo(mongo.GetClient()), grouphash.NewGroupHashFromGroupServer(&gs))
 	gs.db = database
 	gs.User = userRpcClient
-	gs.Notification = notification.NewGroupNotificationSender(database, &msgRpcClient, &userRpcClient, config, func(ctx context.Context, userIDs []string) ([]notification.CommonUser, error) {
+	gs.Notification = notification.NewGroupNotificationSender(database, &msgRpcClient, &userRpcClient, func(ctx context.Context, userIDs []string) ([]notification.CommonUser, error) {
 		users, err := userRpcClient.GetUsersInfo(ctx, userIDs)
 		if err != nil {
 			return nil, err
@@ -89,8 +96,6 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 	})
 	gs.conversationRpcClient = conversationRpcClient
 	gs.msgRpcClient = msgRpcClient
-	gs.roomRpcClient = roomRpcClient
-	gs.config = config
 	pbgroup.RegisterGroupServer(server, &gs)
 	return nil
 }
@@ -101,18 +106,15 @@ type groupServer struct {
 	Notification          *notification.GroupNotificationSender
 	conversationRpcClient rpcclient.ConversationRpcClient
 	msgRpcClient          rpcclient.MessageRpcClient
-	roomRpcClient         rpcclient.RoomRpcClient
-	config                *config.GlobalConfig
-}
-
-func (s *groupServer) GetJoinedGroupIDs(ctx context.Context, req *pbgroup.GetJoinedGroupIDsReq) (*pbgroup.GetJoinedGroupIDsResp, error) {
-	//TODO implement me
-	panic("implement me")
 }
 
 func (s *groupServer) NotificationUserInfoUpdate(ctx context.Context, req *pbgroup.NotificationUserInfoUpdateReq) (*pbgroup.NotificationUserInfoUpdateResp, error) {
+	defer log.ZDebug(ctx, "return")
 	members, err := s.db.FindGroupMemberUser(ctx, nil, req.UserID)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
 	groupIDs := make([]string, 0, len(members))
@@ -122,20 +124,21 @@ func (s *groupServer) NotificationUserInfoUpdate(ctx context.Context, req *pbgro
 		}
 		groupIDs = append(groupIDs, member.GroupID)
 	}
+	log.ZInfo(ctx, "NotificationUserInfoUpdate", "joinGroupNum", len(members), "updateNum", len(groupIDs), "updateGroupIDs", groupIDs)
 	for _, groupID := range groupIDs {
-		if err = s.Notification.GroupMemberInfoSetNotification(ctx, groupID, req.UserID); err != nil {
-			return nil, err
+		if err := s.Notification.GroupMemberInfoSetNotification(ctx, groupID, req.UserID); err != nil {
+			log.ZError(ctx, "NotificationUserInfoUpdate setGroupMemberInfo notification failed", err, "groupID", groupID)
 		}
 	}
-	if err = s.db.DeleteGroupMemberHash(ctx, groupIDs); err != nil {
-		return nil, err
+	if err := s.db.DeleteGroupMemberHash(ctx, groupIDs); err != nil {
+		log.ZError(ctx, "NotificationUserInfoUpdate DeleteGroupMemberHash", err, "groupID", groupIDs)
 	}
 
 	return &pbgroup.NotificationUserInfoUpdateResp{}, nil
 }
 
 func (s *groupServer) CheckGroupAdmin(ctx context.Context, groupID string) error {
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		groupMember, err := s.db.TakeGroupMember(ctx, groupID, mcontext.GetOpUserID(ctx))
 		if err != nil {
 			return err
@@ -200,7 +203,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 	if req.OwnerUserID == "" {
 		return nil, errs.ErrArgs.Wrap("no group owner")
 	}
-	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID, s.config); err != nil {
+	if err := authverify.CheckAccessV3(ctx, req.OwnerUserID); err != nil {
 		return nil, err
 	}
 	userIDs := append(append(req.MemberUserIDs, req.AdminUserIDs...), req.OwnerUserID)
@@ -219,7 +222,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		return nil, errs.ErrUserIDNotFound.Wrap("user not found")
 	}
 	// Callback Before create Group
-	if err := CallbackBeforeCreateGroup(ctx, s.config, req); err != nil {
+	if err := CallbackBeforeCreateGroup(ctx, req); err != nil {
 		return nil, err
 	}
 	var groupMembers []*relationtb.GroupMemberModel
@@ -238,7 +241,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 			JoinTime:       time.Now(),
 			MuteEndTime:    time.UnixMilli(0),
 		}
-		if err := CallbackBeforeMemberJoinGroup(ctx, s.config, groupMember, group.Ex); err != nil {
+		if err := CallbackBeforeMemberJoinGroup(ctx, groupMember, group.Ex); err != nil {
 			return err
 		}
 		groupMembers = append(groupMembers, groupMember)
@@ -306,7 +309,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 		AdminUserIDs:  req.AdminUserIDs,
 	}
 
-	if err := CallbackAfterCreateGroup(ctx, s.config, reqCallBackAfter); err != nil {
+	if err := CallbackAfterCreateGroup(ctx, reqCallBackAfter); err != nil {
 		return nil, err
 	}
 
@@ -315,7 +318,7 @@ func (s *groupServer) CreateGroup(ctx context.Context, req *pbgroup.CreateGroupR
 
 func (s *groupServer) GetJoinedGroupList(ctx context.Context, req *pbgroup.GetJoinedGroupListReq) (*pbgroup.GetJoinedGroupListResp, error) {
 	resp := &pbgroup.GetJoinedGroupListResp{}
-	if err := authverify.CheckAccessV3(ctx, req.FromUserID, s.config); err != nil {
+	if err := authverify.CheckAccessV3(ctx, req.FromUserID); err != nil {
 		return nil, err
 	}
 	total, members, err := s.db.PageGetJoinGroup(ctx, req.FromUserID, req.Pagination)
@@ -385,7 +388,7 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 	}
 	var groupMember *relationtb.GroupMemberModel
 	var opUserID string
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		opUserID = mcontext.GetOpUserID(ctx)
 		var err error
 		groupMember, err = s.db.TakeGroupMember(ctx, req.GroupID, opUserID)
@@ -397,11 +400,11 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 		}
 	}
 
-	if err := CallbackBeforeInviteUserToGroup(ctx, s.config, req); err != nil {
+	if err := CallbackBeforeInviteUserToGroup(ctx, req); err != nil {
 		return nil, err
 	}
 	if group.NeedVerification == constant.AllNeedVerification {
-		if !authverify.IsAppManagerUid(ctx, s.config) {
+		if !authverify.IsAppManagerUid(ctx) {
 			if !(groupMember.RoleLevel == constant.GroupOwner || groupMember.RoleLevel == constant.GroupAdmin) {
 				var requests []*relationtb.GroupRequestModel
 				for _, userID := range req.InvitedUserIDs {
@@ -441,7 +444,7 @@ func (s *groupServer) InviteUserToGroup(ctx context.Context, req *pbgroup.Invite
 			JoinTime:       time.Now(),
 			MuteEndTime:    time.UnixMilli(0),
 		}
-		if err := CallbackBeforeMemberJoinGroup(ctx, s.config, member, group.Ex); err != nil {
+		if err := CallbackBeforeMemberJoinGroup(ctx, member, group.Ex); err != nil {
 			return nil, err
 		}
 		groupMembers = append(groupMembers, member)
@@ -471,76 +474,49 @@ func (s *groupServer) GetGroupAllMember(ctx context.Context, req *pbgroup.GetGro
 	return resp, nil
 }
 
-// GetGroupMemberList 获取群成员列表
-// ctx: 上下文，用于传递请求范围的截止时间、取消信号等
-// req: 包含群ID、分页信息和搜索关键词的请求参数
-// 返回值: 群成员列表响应和可能的错误
 func (s *groupServer) GetGroupMemberList(ctx context.Context, req *pbgroup.GetGroupMemberListReq) (*pbgroup.GetGroupMemberListResp, error) {
-	// 初始化群成员列表响应对象
 	resp := &pbgroup.GetGroupMemberListResp{}
-	// 声明变量：总成员数、成员列表、错误信息
 	var (
 		total   int64
 		members []*relationtb.GroupMemberModel
 		err     error
 	)
-
-	// 判断是否有搜索关键词
 	if req.Keyword == "" {
-		// 无关键词时，直接分页查询群成员
 		total, members, err = s.db.PageGetGroupMember(ctx, req.GroupID, req.Pagination)
 	} else {
-		// 有关键词时，先查询该群所有成员
 		members, err = s.db.FindGroupMemberAll(ctx, req.GroupID)
 	}
-
-	// 检查数据库查询是否出错
 	if err != nil {
 		return nil, err
 	}
-
-	// 填充群成员的详细信息（可能是补充用户资料等操作）
 	if err := s.PopulateGroupMember(ctx, members...); err != nil {
 		return nil, err
 	}
-
-	// 再次检查是否有搜索关键词（需要处理搜索逻辑）
 	if req.Keyword != "" {
-		// 创建一个新的切片用于存储符合搜索条件的成员
 		groupMembers := make([]*relationtb.GroupMemberModel, 0)
-		// 遍历所有成员，筛选出符合关键词的成员
 		for _, member := range members {
-			// 匹配用户ID
 			if member.UserID == req.Keyword {
 				groupMembers = append(groupMembers, member)
-				total++  // 累加符合条件的成员总数
-				continue // 继续下一个成员的检查
+				total++
+				continue
 			}
-			// 匹配昵称
 			if member.Nickname == req.Keyword {
 				groupMembers = append(groupMembers, member)
-				total++  // 累加符合条件的成员总数
-				continue // 继续下一个成员的检查
+				total++
+				continue
 			}
 		}
 
-		// 对筛选后的成员列表进行分页处理
 		GMembers := utils.Paginate(groupMembers, int(req.Pagination.GetPageNumber()), int(req.Pagination.GetShowNumber()))
-		// 将数据库模型批量转换为protobuf模型并赋值给响应
 		resp.Members = utils.Batch(convert.Db2PbGroupMember, GMembers)
-		// 设置符合条件的成员总数
 		resp.Total = uint32(total)
 		return resp, nil
 	}
-
-	// 无搜索关键词时，直接使用分页查询的结果
 	resp.Total = uint32(total)
-	// 将数据库模型批量转换为protobuf模型并赋值给响应
 	resp.Members = utils.Batch(convert.Db2PbGroupMember, members)
 	return resp, nil
 }
 
-// 踢出群组成员
 func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGroupMemberReq) (*pbgroup.KickGroupMemberResp, error) {
 	resp := &pbgroup.KickGroupMemberResp{}
 	group, err := s.db.TakeGroup(ctx, req.GroupID)
@@ -568,7 +544,7 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 	for i, member := range members {
 		memberMap[member.UserID] = members[i]
 	}
-	isAppManagerUid := authverify.IsAppManagerUid(ctx, s.config)
+	isAppManagerUid := authverify.IsAppManagerUid(ctx)
 	opMember := memberMap[opUserID]
 	for _, userID := range req.KickedUserIDs {
 		member, ok := memberMap[userID]
@@ -640,7 +616,7 @@ func (s *groupServer) KickGroupMember(ctx context.Context, req *pbgroup.KickGrou
 		return nil, err
 	}
 
-	if err := CallbackKillGroupMember(ctx, s.config, req); err != nil {
+	if err := CallbackKillGroupMember(ctx, req); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -729,60 +705,44 @@ func (s *groupServer) GetGroupApplicationList(ctx context.Context, req *pbgroup.
 }
 
 func (s *groupServer) GetGroupsInfo(ctx context.Context, req *pbgroup.GetGroupsInfoReq) (*pbgroup.GetGroupsInfoResp, error) {
-
-	// 创建返回的响应结构体
 	resp := &pbgroup.GetGroupsInfoResp{}
-	// 检查请求的群组ID列表是否为空
 	if len(req.GroupIDs) == 0 {
-		return nil, errs.ErrArgs.Wrap("groupID is empty") // 群组ID为空，返回参数错误
+		return nil, errs.ErrArgs.Wrap("groupID is empty")
 	}
-	// 从数据库查找所有请求的群组信息
 	groups, err := s.db.FindGroup(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err // 查找群组信息失败，返回错误
+		return nil, err
 	}
-	// 获取每个群组的成员数量映射
 	groupMemberNumMap, err := s.db.MapGroupMemberNum(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err // 获取群组成员数量失败，返回错误
+		return nil, err
 	}
-	// 查找每个群组的群主信息
 	owners, err := s.db.FindGroupsOwner(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err // 查找群主失败，返回错误
+		return nil, err
 	}
-	// 填充群主成员的其他信息（如昵称、头像等）
 	if err := s.PopulateGroupMember(ctx, owners...); err != nil {
-		return nil, err // 填充群主信息失败，返回错误
+		return nil, err
 	}
-	// 将群主信息列表转为以群组ID为key的map，便于后续查找
 	ownerMap := utils.SliceToMap(owners, func(e *relationtb.GroupMemberModel) string {
 		return e.GroupID
 	})
-	// 遍历所有群组，将数据库模型转换为响应的群组信息结构体
 	resp.GroupInfos = utils.Slice(groups, func(e *relationtb.GroupModel) *sdkws.GroupInfo {
 		var ownerUserID string
-		// 获取群主用户ID
 		if owner, ok := ownerMap[e.GroupID]; ok {
 			ownerUserID = owner.UserID
 		}
-		// 数据库模型转为响应结构体，包含群主ID和成员数量
 		return convert.Db2PbGroupInfo(e, ownerUserID, groupMemberNumMap[e.GroupID])
 	})
-
-	//	fmt.Printf("我看看  %+v\n", resp.GroupInfos)
-
-	// 返回群组信息列表响应
 	return resp, nil
 }
 
 func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup.GroupApplicationResponseReq) (*pbgroup.GroupApplicationResponseResp, error) {
-
 	defer log.ZInfo(ctx, utils.GetFuncName()+" Return")
 	if !utils.Contain(req.HandleResult, constant.GroupResponseAgree, constant.GroupResponseRefuse) {
 		return nil, errs.ErrArgs.Wrap("HandleResult unknown")
 	}
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		groupMember, err := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
 		if err != nil {
 			return nil, err
@@ -804,7 +764,7 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 	}
 	var inGroup bool
 	if _, err := s.db.TakeGroupMember(ctx, req.GroupID, req.FromUserID); err == nil {
-		inGroup = true // Already in group
+		inGroup = true // 已经在群里了
 	} else if !s.IsNotFound(err) {
 		return nil, err
 	}
@@ -826,7 +786,7 @@ func (s *groupServer) GroupApplicationResponse(ctx context.Context, req *pbgroup
 			OperatorUserID: mcontext.GetOpUserID(ctx),
 			Ex:             groupRequest.Ex,
 		}
-		if err = CallbackBeforeMemberJoinGroup(ctx, s.config, member, group.Ex); err != nil {
+		if err = CallbackBeforeMemberJoinGroup(ctx, member, group.Ex); err != nil {
 			return nil, err
 		}
 	}
@@ -874,7 +834,7 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 		Ex:         req.Ex,
 	}
 
-	if err = CallbackApplyJoinGroupBefore(ctx, s.config, reqCall); err != nil {
+	if err = CallbackApplyJoinGroupBefore(ctx, reqCall); err != nil {
 		return nil, err
 	}
 	_, err = s.db.TakeGroupMember(ctx, req.GroupID, req.InviterUserID)
@@ -895,7 +855,7 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 			JoinTime:       time.Now(),
 			MuteEndTime:    time.UnixMilli(0),
 		}
-		if err := CallbackBeforeMemberJoinGroup(ctx, s.config, groupMember, group.Ex); err != nil {
+		if err := CallbackBeforeMemberJoinGroup(ctx, groupMember, group.Ex); err != nil {
 			return nil, err
 		}
 		if err := s.db.CreateGroup(ctx, nil, []*relationtb.GroupMemberModel{groupMember}); err != nil {
@@ -906,7 +866,7 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 			return nil, err
 		}
 		s.Notification.MemberEnterNotification(ctx, req.GroupID, req.InviterUserID)
-		if err = CallbackAfterJoinGroup(ctx, s.config, req); err != nil {
+		if err = CallbackAfterJoinGroup(ctx, req); err != nil {
 			return nil, err
 		}
 		return resp, nil
@@ -920,18 +880,19 @@ func (s *groupServer) JoinGroup(ctx context.Context, req *pbgroup.JoinGroupReq) 
 		HandledTime: time.Unix(0, 0),
 		Ex:          req.Ex,
 	}
-	if err = s.db.CreateGroupRequest(ctx, []*relationtb.GroupRequestModel{&groupRequest}); err != nil {
+	if err := s.db.CreateGroupRequest(ctx, []*relationtb.GroupRequestModel{&groupRequest}); err != nil {
 		return nil, err
 	}
 	s.Notification.JoinGroupApplicationNotification(ctx, req)
 	return resp, nil
 }
+
 func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) (*pbgroup.QuitGroupResp, error) {
 	resp := &pbgroup.QuitGroupResp{}
 	if req.UserID == "" {
 		req.UserID = mcontext.GetOpUserID(ctx)
 	} else {
-		if err := authverify.CheckAccessV3(ctx, req.UserID, s.config); err != nil {
+		if err := authverify.CheckAccessV3(ctx, req.UserID); err != nil {
 			return nil, err
 		}
 	}
@@ -955,20 +916,10 @@ func (s *groupServer) QuitGroup(ctx context.Context, req *pbgroup.QuitGroupReq) 
 	}
 
 	// callback
-	if err := CallbackQuitGroup(ctx, s.config, req); err != nil {
+	if err := CallbackQuitGroup(ctx, req); err != nil {
 		return nil, err
 	}
 	return resp, nil
-}
-
-func (s *groupServer) deleteRoomMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
-
-	conevrsationID := msgprocessor.GetConversationIDBySessionType(constant.GroupChatType, groupID)
-	maxSeq, err := s.msgRpcClient.GetConversationMaxSeq(ctx, conevrsationID)
-	if err != nil {
-		return err
-	}
-	return s.conversationRpcClient.SetConversationMaxSeq(ctx, userIDs, conevrsationID, maxSeq)
 }
 
 func (s *groupServer) deleteMemberAndSetConversationSeq(ctx context.Context, groupID string, userIDs []string) error {
@@ -982,7 +933,7 @@ func (s *groupServer) deleteMemberAndSetConversationSeq(ctx context.Context, gro
 
 func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInfoReq) (*pbgroup.SetGroupInfoResp, error) {
 	var opMember *relationtb.GroupMemberModel
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		var err error
 		opMember, err = s.db.TakeGroupMember(ctx, req.GroupInfoForSet.GroupID, mcontext.GetOpUserID(ctx))
 		if err != nil {
@@ -995,7 +946,7 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 			return nil, err
 		}
 	}
-	if err := CallbackBeforeSetGroupInfo(ctx, s.config, req); err != nil {
+	if err := CallbackBeforeSetGroupInfo(ctx, req); err != nil {
 		return nil, err
 	}
 	group, err := s.db.TakeGroup(ctx, req.GroupInfoForSet.GroupID)
@@ -1003,7 +954,7 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 		return nil, err
 	}
 	if group.Status == constant.GroupStatusDismissed {
-		return nil, errs.Wrap(errs.ErrDismissedAlready)
+		return nil, utils.Wrap(errs.ErrDismissedAlready, "")
 	}
 	resp := &pbgroup.SetGroupInfoResp{}
 	count, err := s.db.FindGroupMemberNum(ctx, group.GroupID)
@@ -1064,7 +1015,7 @@ func (s *groupServer) SetGroupInfo(ctx context.Context, req *pbgroup.SetGroupInf
 	if num > 0 {
 		_ = s.Notification.GroupInfoSetNotification(ctx, tips)
 	}
-	if err := CallbackAfterSetGroupInfo(ctx, s.config, req); err != nil {
+	if err := CallbackAfterSetGroupInfo(ctx, req); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -1101,7 +1052,7 @@ func (s *groupServer) TransferGroupOwner(ctx context.Context, req *pbgroup.Trans
 	if newOwner == nil {
 		return nil, errs.ErrArgs.Wrap("NewOwnerUser not in group " + req.NewOwnerUserID)
 	}
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		if !(mcontext.GetOpUserID(ctx) == oldOwner.UserID && oldOwner.RoleLevel == constant.GroupOwner) {
 			return nil, errs.ErrNoPermission.Wrap("no permission transfer group owner")
 		}
@@ -1110,7 +1061,7 @@ func (s *groupServer) TransferGroupOwner(ctx context.Context, req *pbgroup.Trans
 		return nil, err
 	}
 
-	if err := CallbackAfterTransferGroupOwner(ctx, s.config, req); err != nil {
+	if err := CallbackTransferGroupOwnerAfter(ctx, req); err != nil {
 		return nil, err
 	}
 	s.Notification.GroupOwnerTransferredNotification(ctx, req)
@@ -1242,7 +1193,7 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 	if err != nil {
 		return nil, err
 	}
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		if owner.UserID != mcontext.GetOpUserID(ctx) {
 			return nil, errs.ErrNoPermission.Wrap("not group owner")
 		}
@@ -1254,7 +1205,7 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 	if err != nil {
 		return nil, err
 	}
-	if !req.DeleteMember && group.Status == constant.GroupStatusDismissed {
+	if req.DeleteMember == false && group.Status == constant.GroupStatusDismissed {
 		return nil, errs.ErrDismissedAlready.Wrap("group status is dismissed")
 	}
 	if err := s.db.DismissGroup(ctx, req.GroupID, req.DeleteMember); err != nil {
@@ -1284,7 +1235,7 @@ func (s *groupServer) DismissGroup(ctx context.Context, req *pbgroup.DismissGrou
 		MembersID: membersID,
 		GroupType: string(group.GroupType),
 	}
-	if err := CallbackDismissGroup(ctx, s.config, reqCall); err != nil {
+	if err := CallbackDismissGroup(ctx, reqCall); err != nil {
 		return nil, err
 	}
 
@@ -1300,7 +1251,7 @@ func (s *groupServer) MuteGroupMember(ctx context.Context, req *pbgroup.MuteGrou
 	if err := s.PopulateGroupMember(ctx, member); err != nil {
 		return nil, err
 	}
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		opMember, err := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
 		if err != nil {
 			return nil, err
@@ -1334,7 +1285,7 @@ func (s *groupServer) CancelMuteGroupMember(ctx context.Context, req *pbgroup.Ca
 	if err := s.PopulateGroupMember(ctx, member); err != nil {
 		return nil, err
 	}
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		opMember, err := s.db.TakeGroupMember(ctx, req.GroupID, mcontext.GetOpUserID(ctx))
 		if err != nil {
 			return nil, err
@@ -1393,7 +1344,7 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 	if opUserID == "" {
 		return nil, errs.ErrNoPermission.Wrap("no op user id")
 	}
-	isAppManagerUid := authverify.IsAppManagerUid(ctx, s.config)
+	isAppManagerUid := authverify.IsAppManagerUid(ctx)
 	for i := range req.Members {
 		req.Members[i].FaceURL = nil
 	}
@@ -1476,7 +1427,7 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 		}
 	}
 	for i := 0; i < len(req.Members); i++ {
-		if err := CallbackBeforeSetGroupMemberInfo(ctx, s.config, req.Members[i]); err != nil {
+		if err := CallbackBeforeSetGroupMemberInfo(ctx, req.Members[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -1503,7 +1454,7 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 		}
 	}
 	for i := 0; i < len(req.Members); i++ {
-		if err := CallbackAfterSetGroupMemberInfo(ctx, s.config, req.Members[i]); err != nil {
+		if err := CallbackAfterSetGroupMemberInfo(ctx, req.Members[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -1512,42 +1463,33 @@ func (s *groupServer) SetGroupMemberInfo(ctx context.Context, req *pbgroup.SetGr
 }
 
 func (s *groupServer) GetGroupAbstractInfo(ctx context.Context, req *pbgroup.GetGroupAbstractInfoReq) (*pbgroup.GetGroupAbstractInfoResp, error) {
-	// 创建响应结构体
 	resp := &pbgroup.GetGroupAbstractInfoResp{}
-	// 检查请求的群组ID列表是否为空
 	if len(req.GroupIDs) == 0 {
-		return nil, errs.ErrArgs.Wrap("groupIDs empty") // 群组ID为空，返回参数错误
+		return nil, errs.ErrArgs.Wrap("groupIDs empty")
 	}
-	// 检查群组ID列表是否有重复
 	if utils.Duplicate(req.GroupIDs) {
-		return nil, errs.ErrArgs.Wrap("groupIDs duplicate") // 群组ID重复，返回参数错误
+		return nil, errs.ErrArgs.Wrap("groupIDs duplicate")
 	}
-	// 从数据库查找群组信息
 	groups, err := s.db.FindGroup(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err // 查找群组失败，返回错误
+		return nil, err
 	}
-	// 检查请求的群组ID是否都在数据库查到
 	if ids := utils.Single(req.GroupIDs, utils.Slice(groups, func(group *relationtb.GroupModel) string {
 		return group.GroupID
 	})); len(ids) > 0 {
-		return nil, errs.ErrGroupIDNotFound.Wrap("not found group " + strings.Join(ids, ",")) // 有群组未找到，返回错误
+		return nil, errs.ErrGroupIDNotFound.Wrap("not found group " + strings.Join(ids, ","))
 	}
-	// 获取每个群组对应的用户成员信息
 	groupUserMap, err := s.db.MapGroupMemberUserID(ctx, req.GroupIDs)
 	if err != nil {
-		return nil, err // 获取群组成员失败，返回错误
+		return nil, err
 	}
-	// 检查所有群组都能查到成员信息
 	if ids := utils.Single(req.GroupIDs, utils.Keys(groupUserMap)); len(ids) > 0 {
-		return nil, errs.ErrGroupIDNotFound.Wrap(fmt.Sprintf("group %s not found member", strings.Join(ids, ","))) // 有群组查不到成员，返回错误
+		return nil, errs.ErrGroupIDNotFound.Wrap(fmt.Sprintf("group %s not found member", strings.Join(ids, ",")))
 	}
-	// 构建群组摘要信息列表
 	resp.GroupAbstractInfos = utils.Slice(groups, func(group *relationtb.GroupModel) *pbgroup.GroupAbstractInfo {
-		users := groupUserMap[group.GroupID]                                              // 获取群组成员信息
-		return convert.Db2PbGroupAbstractInfo(group.GroupID, users.MemberNum, users.Hash) // 转换为响应格式
+		users := groupUserMap[group.GroupID]
+		return convert.Db2PbGroupAbstractInfo(group.GroupID, users.MemberNum, users.Hash)
 	})
-	// 返回群组摘要信息响应
 	return resp, nil
 }
 
