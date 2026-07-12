@@ -61,6 +61,24 @@ services:
     networks:
       - openim
 
+
+#  livekit:
+#    image: livekit/livekit-server:latest
+#    container_name: livekit-server
+#    entrypoint: ["livekit-server"]
+#    restart: unless-stopped
+#    networks:
+#      - openim
+#    volumes:
+#      - ./config/livekit-config.yaml:/etc/livekit.yaml
+#    ports:
+#      - "7880:7880"
+#      - "7881:7881"
+#      - "50000-60000:50000-60000/udp"
+#    command: ["--config", "/etc/livekit.yaml"]
+#    depends_on:
+#      - redis
+
   zookeeper:
     image: bitnami/zookeeper:${ZOOKEEPER_IMAGE_VERSION:-3.8}
     container_name: zookeeper

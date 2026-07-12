@@ -1,0 +1,32 @@
+# 自建 LiveKit 服务器配置
+# 生产环境请替换 keys 中的 API Key 和 Secret
+
+port: 7880
+bind_addresses:
+  - 0.0.0.0
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  #use_external_ip: true
+  use_external_ip: false
+  enable_loopback_candidate: false
+ # node_ip: 8.222.206.79
+
+redis:
+  address: redis:6379
+  username: ''
+  password: openIM123
+
+keys:
+  # 格式: API_KEY: API_SECRET
+  translateapp: 03598bb9e951cd6507b61166d3b986a0e71a552814a85b194d48fc641d11af43
+
+logging:
+  level: info
+
+# TURN 暂时关闭，等域名 SSL 证书就绪后再开启
+# turn:
+#   enabled: true
+#   domain: ws.ddfdf.co
+#   tls_port: 5349

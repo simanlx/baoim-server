@@ -321,7 +321,6 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		msgGroup.POST("/send_msg", m.SendMessage)
 
 		msgGroup.POST("/msg_Verification", m.MsgVerification) //增加消息验证接口
-
 		msgGroup.POST("/send_business_notification", m.SendBusinessNotification)
 		msgGroup.POST("/pull_msg_by_seq", m.PullMsgBySeqs)
 		msgGroup.POST("/revoke_msg", m.RevokeMsg)
