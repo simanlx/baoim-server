@@ -15,6 +15,7 @@
 package msggateway
 
 import (
+	"BaoIM-Server/pkg/common/config"
 	"context"
 	"sync"
 
@@ -167,11 +168,32 @@ func (g GrpcHandler) SendSignalMessage(ctx context.Context, data *Req) ([]byte, 
 	if err := proto.Unmarshal(data.Data, signalReq); err != nil {
 		return nil, err
 	}
+	// 调用RTC RPC客户端发送信号消息
 	resp, err := g.signalClient.Client.SignalMessageAssemble(ctx, &rtc.SignalMessageAssembleReq{SignalReq: signalReq})
 	if err != nil {
 		return nil, err
 	}
-	c, err := proto.Marshal(resp)
+
+	//增加
+	resp.MsgData.Options = config.GetOptionsByNotification(config.NotificationConf{
+		IsSendMsg:        false,
+		ReliabilityLevel: 2,
+		UnreadCount:      false,
+		//OfflinePush: config.POfflinePush{
+		//	true,
+		//	"dddd",
+		//	"",
+		//	"",
+		//},
+	})
+	//发送消息
+	_, err = g.msgRpcClient.SendMsg(ctx, &msg.SendMsgReq{MsgData: resp.MsgData})
+	if err != nil {
+		return nil, err
+	}
+
+	//c, err := proto.Marshal(resp)
+	c, err := proto.Marshal(resp.SignalResp)
 	if err != nil {
 		return nil, errs.Wrap(err)
 	}
