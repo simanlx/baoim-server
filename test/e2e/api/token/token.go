@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -57,7 +58,7 @@ type UserRegisterRequest struct {
 	Users  []User `json:"users"`
 }
 
-/* func main() {
+func main() {
 	// Example usage of functions
 	token, err := GetUserToken("openIM123456")
 	if err != nil {
@@ -69,7 +70,7 @@ type UserRegisterRequest struct {
 	if err != nil {
 		log.Fatalf("Error registering user: %v", err)
 	}
-} */
+}
 
 // GetUserToken requests a user token from the API.
 func GetUserToken(userID string) (string, error) {

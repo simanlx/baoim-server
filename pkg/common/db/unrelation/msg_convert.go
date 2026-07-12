@@ -18,10 +18,11 @@ import (
 	"context"
 	"fmt"
 
-	table "BaoIM-Server/pkg/common/db/table/unrelation"
 	"baoim/tools/log"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+
+	table "BaoIM-Server/pkg/common/db/table/unrelation"
 )
 
 func (m *MsgMongoDriver) ConvertMsgsDocLen(ctx context.Context, conversationIDs []string) {

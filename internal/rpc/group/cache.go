@@ -17,8 +17,9 @@ package group
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/convert"
 	pbgroup "baoim/protocol/group"
+
+	"BaoIM-Server/pkg/common/convert"
 )
 
 func (s *groupServer) GetGroupInfoCache(

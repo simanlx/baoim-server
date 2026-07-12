@@ -15,9 +15,10 @@
 package convert
 
 import (
-	"BaoIM-Server/pkg/common/db/table/unrelation"
 	"baoim/protocol/constant"
 	"baoim/protocol/sdkws"
+
+	"BaoIM-Server/pkg/common/db/table/unrelation"
 )
 
 func MsgPb2DB(msg *sdkws.MsgData) *unrelation.MsgDataModel {
@@ -54,6 +55,7 @@ func MsgPb2DB(msg *sdkws.MsgData) *unrelation.MsgDataModel {
 	msgDataModel.AtUserIDList = msg.AtUserIDList
 	msgDataModel.AttachedInfo = msg.AttachedInfo
 	msgDataModel.Ex = msg.Ex
+
 	return &msgDataModel
 }
 
@@ -94,5 +96,7 @@ func MsgDB2Pb(msgModel *unrelation.MsgDataModel) *sdkws.MsgData {
 	msg.AtUserIDList = msgModel.AtUserIDList
 	msg.AttachedInfo = msgModel.AttachedInfo
 	msg.Ex = msgModel.Ex
+	msg.KeyVersion = msgModel.KeyVersion
+
 	return &msg
 }

@@ -17,7 +17,7 @@
 #
 
 GO := go
-GO_SUPPORTED_VERSIONS ?= 1.19|1.20|1.21|1.22|1.23
+GO_SUPPORTED_VERSIONS ?= 1.19|1.20|1.21|1.22
 
 GO_LDFLAGS += -X $(VERSION_PACKAGE).gitVersion=$(GIT_TAG) \
 	-X $(VERSION_PACKAGE).gitCommit=$(GIT_COMMIT) \
@@ -244,7 +244,7 @@ go.imports: tools.verify.goimports
 
 ## go.verify: execute all verity scripts.
 .PHONY: go.verify
-go.verify: tools.verify.misspell
+go.verify:
 	@echo "Starting verification..."
 	@scripts_list=$$(find $(ROOT_DIR)/scripts -type f -name 'verify-*' | sort); \
 	for script in $$scripts_list; do \

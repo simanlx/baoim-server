@@ -17,11 +17,12 @@ package rpcclient
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/config"
-	util "BaoIM-Server/pkg/util/genutil"
+	"google.golang.org/grpc"
+
 	"baoim/protocol/push"
 	"baoim/tools/discoveryregistry"
-	"google.golang.org/grpc"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
 type Push struct {
@@ -30,10 +31,10 @@ type Push struct {
 	discov discoveryregistry.SvcDiscoveryRegistry
 }
 
-func NewPush(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *Push {
-	conn, err := discov.GetConn(context.Background(), config.RpcRegisterName.OpenImPushName)
+func NewPush(discov discoveryregistry.SvcDiscoveryRegistry) *Push {
+	conn, err := discov.GetConn(context.Background(), config.Config.RpcRegisterName.OpenImPushName)
 	if err != nil {
-		util.ExitWithError(err)
+		panic(err)
 	}
 	return &Push{
 		discov: discov,
@@ -44,10 +45,13 @@ func NewPush(discov discoveryregistry.SvcDiscoveryRegistry, config *config.Globa
 
 type PushRpcClient Push
 
-func NewPushRpcClient(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) PushRpcClient {
-	return PushRpcClient(*NewPush(discov, config))
+func NewPushRpcClient(discov discoveryregistry.SvcDiscoveryRegistry) PushRpcClient {
+	return PushRpcClient(*NewPush(discov))
 }
 
-func (p *PushRpcClient) DelUserPushToken(ctx context.Context, req *push.DelUserPushTokenReq) (*push.DelUserPushTokenResp, error) {
+func (p *PushRpcClient) DelUserPushToken(
+	ctx context.Context,
+	req *push.DelUserPushTokenReq,
+) (*push.DelUserPushTokenResp, error) {
 	return p.Client.DelUserPushToken(ctx, req)
 }

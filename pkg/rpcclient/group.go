@@ -18,35 +18,37 @@ import (
 	"context"
 	"strings"
 
-	"BaoIM-Server/pkg/common/config"
-	util "BaoIM-Server/pkg/util/genutil"
+	"google.golang.org/grpc"
+
 	"baoim/protocol/constant"
 	"baoim/protocol/group"
 	"baoim/protocol/sdkws"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
 	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
 type Group struct {
+	conn   grpc.ClientConnInterface
 	Client group.GroupClient
 	discov discoveryregistry.SvcDiscoveryRegistry
-	Config *config.GlobalConfig
 }
 
-func NewGroup(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *Group {
-	conn, err := discov.GetConn(context.Background(), config.RpcRegisterName.OpenImGroupName)
+func NewGroup(discov discoveryregistry.SvcDiscoveryRegistry) *Group {
+	conn, err := discov.GetConn(context.Background(), config.Config.RpcRegisterName.OpenImGroupName)
 	if err != nil {
-		util.ExitWithError(err)
+		panic(err)
 	}
 	client := group.NewGroupClient(conn)
-	return &Group{discov: discov, Client: client, Config: config}
+	return &Group{discov: discov, conn: conn, Client: client}
 }
 
 type GroupRpcClient Group
 
-func NewGroupRpcClient(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) GroupRpcClient {
-	return GroupRpcClient(*NewGroup(discov, config))
+func NewGroupRpcClient(discov discoveryregistry.SvcDiscoveryRegistry) GroupRpcClient {
+	return GroupRpcClient(*NewGroup(discov))
 }
 
 func (g *GroupRpcClient) GetGroupInfos(

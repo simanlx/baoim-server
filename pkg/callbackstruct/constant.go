@@ -41,7 +41,7 @@ const (
 	CallbackBeforeUpdateUserInfoExCommand   = "callbackBeforeUpdateUserInfoExCommand"
 	CallbackBeforeUserRegisterCommand       = "callbackBeforeUserRegisterCommand"
 	CallbackAfterUserRegisterCommand        = "callbackAfterUserRegisterCommand"
-	CallbackAfterTransferGroupOwner         = "callbackAfterTransferGroupOwner"
+	CallbackTransferGroupOwnerAfter         = "callbackTransferGroupOwnerAfter"
 	CallbackBeforeSetFriendRemark           = "callbackBeforeSetFriendRemark"
 	CallbackAfterSetFriendRemark            = "callbackAfterSetFriendRemark"
 	CallbackSingleMsgRead                   = "callbackSingleMsgRead"

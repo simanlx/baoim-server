@@ -17,38 +17,40 @@ package msggateway
 import (
 	"context"
 
-	"BaoIM-Server/pkg/authverify"
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/startrpc"
+	"google.golang.org/grpc"
+
 	"baoim/protocol/constant"
 	"baoim/protocol/msggateway"
 	"baoim/tools/discoveryregistry"
 	"baoim/tools/errs"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
-	"google.golang.org/grpc"
+	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/authverify"
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/startrpc"
 )
 
-func (s *Server) InitServer(config *config.GlobalConfig, disCov discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	rdb, err := cache.NewRedis(config)
+func (s *Server) InitServer(disCov discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
 
-	msgModel := cache.NewMsgCacheModel(rdb, config)
-	s.LongConnServer.SetDiscoveryRegistry(disCov, config)
+	msgModel := cache.NewMsgCacheModel(rdb)
+	s.LongConnServer.SetDiscoveryRegistry(disCov)
 	s.LongConnServer.SetCacheHandler(msgModel)
 	msggateway.RegisterMsgGatewayServer(server, s)
 	return nil
 }
 
-func (s *Server) Start(conf *config.GlobalConfig) error {
+func (s *Server) Start() error {
 	return startrpc.Start(
 		s.rpcPort,
-		conf.RpcRegisterName.OpenImMessageGatewayName,
+		config.Config.RpcRegisterName.OpenImMessageGatewayName,
 		s.prometheusPort,
-		conf,
 		s.InitServer,
 	)
 }
@@ -57,25 +59,20 @@ type Server struct {
 	rpcPort        int
 	prometheusPort int
 	LongConnServer LongConnServer
-	config         *config.GlobalConfig
-	pushTerminal   map[int]struct{}
+	pushTerminal   []int
 }
 
 func (s *Server) SetLongConnServer(LongConnServer LongConnServer) {
 	s.LongConnServer = LongConnServer
 }
 
-func NewServer(rpcPort int, proPort int, longConnServer LongConnServer, conf *config.GlobalConfig) *Server {
-	s := &Server{
+func NewServer(rpcPort int, proPort int, longConnServer LongConnServer) *Server {
+	return &Server{
 		rpcPort:        rpcPort,
 		prometheusPort: proPort,
 		LongConnServer: longConnServer,
-		pushTerminal:   make(map[int]struct{}),
-		config:         conf,
+		pushTerminal:   []int{constant.IOSPlatformID, constant.AndroidPlatformID},
 	}
-	s.pushTerminal[constant.IOSPlatformID] = struct{}{}
-	s.pushTerminal[constant.AndroidPlatformID] = struct{}{}
-	return s
 }
 
 func (s *Server) OnlinePushMsg(
@@ -89,7 +86,7 @@ func (s *Server) GetUsersOnlineStatus(
 	ctx context.Context,
 	req *msggateway.GetUsersOnlineStatusReq,
 ) (*msggateway.GetUsersOnlineStatusResp, error) {
-	if !authverify.IsAppManagerUid(ctx, s.config) {
+	if !authverify.IsAppManagerUid(ctx) {
 		return nil, errs.ErrNoPermission.Wrap("only app manager")
 	}
 	var resp msggateway.GetUsersOnlineStatusResp
@@ -129,10 +126,13 @@ func (s *Server) OnlineBatchPushOneMsg(
 	panic("implement me")
 }
 
-func (s *Server) SuperGroupOnlineBatchPushOneMsg(ctx context.Context, req *msggateway.OnlineBatchPushOneMsgReq,
+func (s *Server) SuperGroupOnlineBatchPushOneMsg(
+	ctx context.Context,
+	req *msggateway.OnlineBatchPushOneMsgReq,
 ) (*msggateway.OnlineBatchPushOneMsgResp, error) {
 
 	var singleUserResults []*msggateway.SingleMsgToUserResults
+
 	for _, v := range req.PushToUserIDs {
 		var resp []*msggateway.SingleMsgToUserPlatform
 		results := &msggateway.SingleMsgToUserResults{
@@ -153,31 +153,23 @@ func (s *Server) SuperGroupOnlineBatchPushOneMsg(ctx context.Context, req *msgga
 			}
 
 			userPlatform := &msggateway.SingleMsgToUserPlatform{
+				RecvID:         v,
 				RecvPlatFormID: int32(client.PlatformID),
 			}
 			if !client.IsBackground ||
 				(client.IsBackground && client.PlatformID != constant.IOSPlatformID) {
 				err := client.PushMessage(ctx, req.MsgData)
 				if err != nil {
-					userPlatform.ResultCode = int64(errs.ErrPushMsgErr.Code())
+					userPlatform.ResultCode = -2
 					resp = append(resp, userPlatform)
 				} else {
-					if _, ok := s.pushTerminal[client.PlatformID]; ok {
-
-						// 信令通知且在后台时，特殊处理
-						//if req.MsgData.ContentType == constant.SignalingNotification && client.IsBackground {
-						//	println("在后台  信令")
-						//	userPlatform.ResultCode = -2
-						//	// results.OnlinePush = false
-						//	resp = append(resp, userPlatform)
-						//}else{
-
+					if utils.IsContainInt(client.PlatformID, s.pushTerminal) {
 						results.OnlinePush = true
 						resp = append(resp, userPlatform)
 					}
 				}
 			} else {
-				userPlatform.ResultCode = int64(errs.ErrIOSBackgroundPushErr.Code())
+				userPlatform.ResultCode = -3
 				resp = append(resp, userPlatform)
 			}
 		}

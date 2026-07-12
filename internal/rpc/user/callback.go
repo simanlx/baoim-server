@@ -17,15 +17,16 @@ package user
 import (
 	"context"
 
+	pbuser "baoim/protocol/user"
+	"baoim/tools/utils"
+
 	cbapi "BaoIM-Server/pkg/callbackstruct"
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/http"
-	pbuser "baoim/protocol/user"
-	"baoim/tools/utils"
 )
 
-func CallbackBeforeUpdateUserInfo(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UpdateUserInfoReq) error {
-	if !globalConfig.Callback.CallbackBeforeUpdateUserInfo.Enable {
+func CallbackBeforeUpdateUserInfo(ctx context.Context, req *pbuser.UpdateUserInfoReq) error {
+	if !config.Config.Callback.CallbackBeforeUpdateUserInfo.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeUpdateUserInfoReq{
@@ -35,7 +36,7 @@ func CallbackBeforeUpdateUserInfo(ctx context.Context, globalConfig *config.Glob
 		Nickname:        &req.UserInfo.Nickname,
 	}
 	resp := &cbapi.CallbackBeforeUpdateUserInfoResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeUpdateUserInfo); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeUpdateUserInfo); err != nil {
 		return err
 	}
 	utils.NotNilReplace(&req.UserInfo.FaceURL, resp.FaceURL)
@@ -43,8 +44,8 @@ func CallbackBeforeUpdateUserInfo(ctx context.Context, globalConfig *config.Glob
 	utils.NotNilReplace(&req.UserInfo.Nickname, resp.Nickname)
 	return nil
 }
-func CallbackAfterUpdateUserInfo(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UpdateUserInfoReq) error {
-	if !globalConfig.Callback.CallbackAfterUpdateUserInfo.Enable {
+func CallbackAfterUpdateUserInfo(ctx context.Context, req *pbuser.UpdateUserInfoReq) error {
+	if !config.Config.Callback.CallbackAfterUpdateUserInfo.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterUpdateUserInfoReq{
@@ -54,13 +55,13 @@ func CallbackAfterUpdateUserInfo(ctx context.Context, globalConfig *config.Globa
 		Nickname:        req.UserInfo.Nickname,
 	}
 	resp := &cbapi.CallbackAfterUpdateUserInfoResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeUpdateUserInfo); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeUpdateUserInfo); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackBeforeUpdateUserInfoEx(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UpdateUserInfoExReq) error {
-	if !globalConfig.Callback.CallbackBeforeUpdateUserInfoEx.Enable {
+func CallbackBeforeUpdateUserInfoEx(ctx context.Context, req *pbuser.UpdateUserInfoExReq) error {
+	if !config.Config.Callback.CallbackBeforeUpdateUserInfoEx.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeUpdateUserInfoExReq{
@@ -70,7 +71,7 @@ func CallbackBeforeUpdateUserInfoEx(ctx context.Context, globalConfig *config.Gl
 		Nickname:        req.UserInfo.Nickname,
 	}
 	resp := &cbapi.CallbackBeforeUpdateUserInfoExResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeUpdateUserInfoEx); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeUpdateUserInfoEx); err != nil {
 		return err
 	}
 	utils.NotNilReplace(req.UserInfo.FaceURL, resp.FaceURL)
@@ -78,8 +79,8 @@ func CallbackBeforeUpdateUserInfoEx(ctx context.Context, globalConfig *config.Gl
 	utils.NotNilReplace(req.UserInfo.Nickname, resp.Nickname)
 	return nil
 }
-func CallbackAfterUpdateUserInfoEx(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UpdateUserInfoExReq) error {
-	if !globalConfig.Callback.CallbackAfterUpdateUserInfoEx.Enable {
+func CallbackAfterUpdateUserInfoEx(ctx context.Context, req *pbuser.UpdateUserInfoExReq) error {
+	if !config.Config.Callback.CallbackAfterUpdateUserInfoEx.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterUpdateUserInfoExReq{
@@ -89,14 +90,14 @@ func CallbackAfterUpdateUserInfoEx(ctx context.Context, globalConfig *config.Glo
 		Nickname:        req.UserInfo.Nickname,
 	}
 	resp := &cbapi.CallbackAfterUpdateUserInfoExResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeUpdateUserInfoEx); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeUpdateUserInfoEx); err != nil {
 		return err
 	}
 	return nil
 }
 
-func CallbackBeforeUserRegister(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UserRegisterReq) error {
-	if !globalConfig.Callback.CallbackBeforeUserRegister.Enable {
+func CallbackBeforeUserRegister(ctx context.Context, req *pbuser.UserRegisterReq) error {
+	if !config.Config.Callback.CallbackBeforeUserRegister.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeUserRegisterReq{
@@ -106,7 +107,7 @@ func CallbackBeforeUserRegister(ctx context.Context, globalConfig *config.Global
 	}
 
 	resp := &cbapi.CallbackBeforeUserRegisterResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeUpdateUserInfo); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeUpdateUserInfo); err != nil {
 		return err
 	}
 	if len(resp.Users) != 0 {
@@ -115,8 +116,8 @@ func CallbackBeforeUserRegister(ctx context.Context, globalConfig *config.Global
 	return nil
 }
 
-func CallbackAfterUserRegister(ctx context.Context, globalConfig *config.GlobalConfig, req *pbuser.UserRegisterReq) error {
-	if !globalConfig.Callback.CallbackAfterUserRegister.Enable {
+func CallbackAfterUserRegister(ctx context.Context, req *pbuser.UserRegisterReq) error {
+	if !config.Config.Callback.CallbackAfterUserRegister.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterUserRegisterReq{
@@ -126,7 +127,7 @@ func CallbackAfterUserRegister(ctx context.Context, globalConfig *config.GlobalC
 	}
 
 	resp := &cbapi.CallbackAfterUserRegisterResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackAfterUpdateUserInfo); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackAfterUpdateUserInfo); err != nil {
 		return err
 	}
 	return nil

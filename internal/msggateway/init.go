@@ -18,29 +18,48 @@ import (
 	"fmt"
 	"time"
 
+	"baoim/tools/utils"
+	"golang.org/x/sync/errgroup"
+
 	"BaoIM-Server/pkg/common/config"
 )
 
 // RunWsAndServer run ws server.
-func RunWsAndServer(conf *config.GlobalConfig, rpcPort, wsPort, prometheusPort int) error {
-	fmt.Println("start rpc/msg_gateway server, port: ", rpcPort, wsPort, prometheusPort, ", OpenIM version: ", config.Version)
+func RunWsAndServer(rpcPort, wsPort, prometheusPort int) error {
+	fmt.Println(
+		"start rpc/msg_gateway server, port: ",
+		rpcPort,
+		wsPort,
+		prometheusPort,
+		", OpenIM version: ",
+		config.Version,
+	)
 	longServer, err := NewWsServer(
-		conf,
 		WithPort(wsPort),
-		WithMaxConnNum(int64(conf.LongConnSvr.WebsocketMaxConnNum)),
-		WithHandshakeTimeout(time.Duration(conf.LongConnSvr.WebsocketTimeout)*time.Second),
-		WithMessageMaxMsgLength(conf.LongConnSvr.WebsocketMaxMsgLen),
-		WithWriteBufferSize(conf.LongConnSvr.WebsocketWriteBufferSize),
+		WithMaxConnNum(int64(config.Config.LongConnSvr.WebsocketMaxConnNum)),
+		WithHandshakeTimeout(time.Duration(config.Config.LongConnSvr.WebsocketTimeout)*time.Second),
+		WithMessageMaxMsgLength(config.Config.LongConnSvr.WebsocketMaxMsgLen),
+		WithWriteBufferSize(config.Config.LongConnSvr.WebsocketWriteBufferSize),
 	)
 	if err != nil {
 		return err
 	}
 
-	hubServer := NewServer(rpcPort, prometheusPort, longServer, conf)
-	netDone := make(chan error)
-	go func() {
-		err = hubServer.Start(conf)
-		netDone <- err
-	}()
-	return hubServer.LongConnServer.Run(netDone)
+	hubServer := NewServer(rpcPort, prometheusPort, longServer)
+
+	wg := errgroup.Group{}
+	wg.Go(func() error {
+		err = hubServer.Start()
+		if err != nil {
+			return utils.Wrap1(err)
+		}
+		return err
+	})
+
+	wg.Go(func() error {
+		return hubServer.LongConnServer.Run()
+	})
+
+	err = wg.Wait()
+	return err
 }

@@ -18,8 +18,6 @@ import (
 	"os"
 	"testing"
 
-	"BaoIM-Server/pkg/common/config"
-
 	"baoim/tools/discoveryregistry"
 	"github.com/stretchr/testify/assert"
 )
@@ -34,23 +32,19 @@ func setupTestEnvironment() {
 
 func TestNewDiscoveryRegister(t *testing.T) {
 	setupTestEnvironment()
-	conf := config.NewGlobalConfig()
+
 	tests := []struct {
 		envType        string
-		gatewayName    string
 		expectedError  bool
 		expectedResult bool
 	}{
-		{"zookeeper", "MessageGateway", false, true},
-		{"k8s", "MessageGateway", false, true},
-		{"direct", "MessageGateway", false, true},
-		{"invalid", "MessageGateway", true, false},
+		{"zookeeper", false, true},
+		{"k8s", false, true}, // 假设 k8s 配置也已正确设置
+		{"invalid", true, false},
 	}
 
 	for _, test := range tests {
-		conf.Envs.Discovery = test.envType
-		conf.RpcRegisterName.OpenImMessageGatewayName = test.gatewayName
-		client, err := NewDiscoveryRegister(conf)
+		client, err := NewDiscoveryRegister(test.envType)
 
 		if test.expectedError {
 			assert.Error(t, err)

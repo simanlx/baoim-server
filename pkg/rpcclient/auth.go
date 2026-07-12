@@ -17,25 +17,26 @@ package rpcclient
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/config"
-	util "BaoIM-Server/pkg/util/genutil"
+	"google.golang.org/grpc"
+
 	"baoim/protocol/auth"
 	"baoim/tools/discoveryregistry"
-	"google.golang.org/grpc"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
-func NewAuth(discov discoveryregistry.SvcDiscoveryRegistry, config *config.GlobalConfig) *Auth {
-	conn, err := discov.GetConn(context.Background(), config.RpcRegisterName.OpenImAuthName)
+func NewAuth(discov discoveryregistry.SvcDiscoveryRegistry) *Auth {
+	conn, err := discov.GetConn(context.Background(), config.Config.RpcRegisterName.OpenImAuthName)
 	if err != nil {
-		util.ExitWithError(err)
+		panic(err)
 	}
 	client := auth.NewAuthClient(conn)
-	return &Auth{discov: discov, conn: conn, Client: client, Config: config}
+
+	return &Auth{discov: discov, conn: conn, Client: client}
 }
 
 type Auth struct {
 	conn   grpc.ClientConnInterface
 	Client auth.AuthClient
 	discov discoveryregistry.SvcDiscoveryRegistry
-	Config *config.GlobalConfig
 }

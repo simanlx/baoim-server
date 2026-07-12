@@ -18,17 +18,15 @@ import (
 	"context"
 	"fmt"
 
-	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/sdkws"
 	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func FriendPb2DB(friend *sdkws.FriendInfo) *relation.FriendModel {
 	dbFriend := &relation.FriendModel{}
-	err := utils.CopyStructFields(dbFriend, friend)
-	if err != nil {
-		return nil
-	}
+	utils.CopyStructFields(dbFriend, friend)
 	dbFriend.FriendUserID = friend.FriendUser.UserID
 	dbFriend.CreateTime = utils.UnixSecondToTime(friend.CreateTime)
 	return dbFriend
@@ -71,11 +69,7 @@ func FriendsDB2Pb(
 	}
 	for _, friend := range friendsDB {
 		friendPb := &sdkws.FriendInfo{FriendUser: &sdkws.UserInfo{}}
-		err := utils.CopyStructFields(friendPb, friend)
-		if err != nil {
-			return nil, err
-		}
-
+		utils.CopyStructFields(friendPb, friend)
 		friendPb.FriendUser.UserID = users[friend.FriendUserID].UserID
 		friendPb.FriendUser.Nickname = users[friend.FriendUserID].Nickname
 		friendPb.FriendUser.FaceURL = users[friend.FriendUserID].FaceURL
@@ -85,10 +79,10 @@ func FriendsDB2Pb(
 		friendsPb = append(friendsPb, friendPb)
 	}
 	return friendsPb, nil
-
 }
 
-func FriendRequestDB2Pb(ctx context.Context,
+func FriendRequestDB2Pb(
+	ctx context.Context,
 	friendRequests []*relation.FriendRequestModel,
 	getUsers func(ctx context.Context, userIDs []string) (map[string]*sdkws.UserInfo, error),
 ) ([]*sdkws.FriendRequest, error) {

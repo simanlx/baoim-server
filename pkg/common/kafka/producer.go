@@ -18,16 +18,17 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"baoim/protocol/constant"
-	"baoim/tools/errs"
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
+	"baoim/tools/utils"
 	"github.com/IBM/sarama"
 	"google.golang.org/protobuf/proto"
+
+	"BaoIM-Server/pkg/common/config"
 )
 
 const maxRetry = 10 // number of retries
@@ -42,15 +43,8 @@ type Producer struct {
 	producer sarama.SyncProducer
 }
 
-type ProducerConfig struct {
-	ProducerAck  string
-	CompressType string
-	Username     string
-	Password     string
-}
-
 // NewKafkaProducer initializes a new Kafka producer.
-func NewKafkaProducer(addr []string, topic string, producerConfig *ProducerConfig, tlsConfig *TLSConfig) (*Producer, error) {
+func NewKafkaProducer(addr []string, topic string) *Producer {
 	p := Producer{
 		addr:   addr,
 		topic:  topic,
@@ -65,14 +59,14 @@ func NewKafkaProducer(addr []string, topic string, producerConfig *ProducerConfi
 	p.config.Producer.Partitioner = sarama.NewHashPartitioner
 
 	// Configure producer acknowledgement level
-	configureProducerAck(&p, producerConfig.ProducerAck)
+	configureProducerAck(&p, config.Config.Kafka.ProducerAck)
 
 	// Configure message compression
-	configureCompression(&p, producerConfig.CompressType)
+	configureCompression(&p, config.Config.Kafka.CompressType)
 
 	// Get Kafka configuration from environment variables or fallback to config file
-	kafkaUsername := getEnvOrConfig("KAFKA_USERNAME", producerConfig.Username)
-	kafkaPassword := getEnvOrConfig("KAFKA_PASSWORD", producerConfig.Password)
+	kafkaUsername := getEnvOrConfig("KAFKA_USERNAME", config.Config.Kafka.Username)
+	kafkaPassword := getEnvOrConfig("KAFKA_PASSWORD", config.Config.Kafka.Password)
 	kafkaAddr := getKafkaAddrFromEnv(addr) // Updated to use the new function
 
 	// Configure SASL authentication if credentials are provided
@@ -86,23 +80,24 @@ func NewKafkaProducer(addr []string, topic string, producerConfig *ProducerConfi
 	p.addr = kafkaAddr
 
 	// Set up TLS configuration (if required)
-	SetupTLSConfig(p.config, tlsConfig)
+	SetupTLSConfig(p.config)
 
 	// Create the producer with retries
 	var err error
 	for i := 0; i <= maxRetry; i++ {
 		p.producer, err = sarama.NewSyncProducer(p.addr, p.config)
 		if err == nil {
-			return &p, errs.Wrap(err)
+			return &p
 		}
 		time.Sleep(1 * time.Second) // Wait before retrying
 	}
+
 	// Panic if unable to create producer after retries
 	if err != nil {
-		return nil, errs.Wrap(errors.New("failed to create Kafka producer: " + err.Error()))
+		panic("Failed to create Kafka producer: " + err.Error())
 	}
 
-	return &p, nil
+	return &p
 }
 
 // configureProducerAck configures the producer's acknowledgement level.
@@ -121,12 +116,8 @@ func configureProducerAck(p *Producer, ackConfig string) {
 
 // configureCompression configures the message compression type for the producer.
 func configureCompression(p *Producer, compressType string) {
-	var compress = sarama.CompressionNone
-	err := compress.UnmarshalText(bytes.ToLower([]byte(compressType)))
-	if err != nil {
-		fmt.Printf("Failed to configure compression: %v\n", err)
-		return
-	}
+	var compress sarama.CompressionCodec = sarama.CompressionNone
+	compress.UnmarshalText(bytes.ToLower([]byte(compressType)))
 	p.config.Producer.Compression = compress
 }
 
@@ -160,10 +151,10 @@ func (p *Producer) SendMessage(ctx context.Context, key string, msg proto.Messag
 	// Marshal the protobuf message
 	bMsg, err := proto.Marshal(msg)
 	if err != nil {
-		return 0, 0, errs.Wrap(err, "kafka proto Marshal err")
+		return 0, 0, utils.Wrap(err, "kafka proto Marshal err")
 	}
 	if len(bMsg) == 0 {
-		return 0, 0, errs.Wrap(errEmptyMsg, "")
+		return 0, 0, utils.Wrap(errEmptyMsg, "")
 	}
 
 	// Prepare Kafka message
@@ -175,13 +166,13 @@ func (p *Producer) SendMessage(ctx context.Context, key string, msg proto.Messag
 
 	// Validate message key and value
 	if kMsg.Key.Length() == 0 || kMsg.Value.Length() == 0 {
-		return 0, 0, errs.Wrap(errEmptyMsg)
+		return 0, 0, utils.Wrap(errEmptyMsg, "")
 	}
 
 	// Attach context metadata as headers
 	header, err := GetMQHeaderWithContext(ctx)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, utils.Wrap(err, "")
 	}
 	kMsg.Headers = header
 
@@ -189,7 +180,7 @@ func (p *Producer) SendMessage(ctx context.Context, key string, msg proto.Messag
 	partition, offset, err := p.producer.SendMessage(kMsg)
 	if err != nil {
 		log.ZWarn(ctx, "p.producer.SendMessage error", err)
-		return 0, 0, errs.Wrap(err)
+		return 0, 0, utils.Wrap(err, "")
 	}
 
 	log.ZDebug(ctx, "ByteEncoder SendMessage end", "key", kMsg.Key, "key length", kMsg.Value.Length())

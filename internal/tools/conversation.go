@@ -19,108 +19,107 @@ import (
 	"math/rand"
 	"time"
 
-	"BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/sdkws"
+
 	"baoim/tools/log"
 	"baoim/tools/mcontext"
 	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
-//	func (c *MsgTool) ConversationsDestructMsgs() {
-//		log.ZInfo(context.Background(), "start msg destruct cron task")
-//		ctx := mcontext.NewCtx(utils.GetSelfFuncName())
-//		conversations, err := c.conversationDatabase.GetConversationIDsNeedDestruct(ctx)
+//func (c *MsgTool) ConversationsDestructMsgs() {
+//	log.ZInfo(context.Background(), "start msg destruct cron task")
+//	ctx := mcontext.NewCtx(utils.GetSelfFuncName())
+//	conversations, err := c.conversationDatabase.GetConversationIDsNeedDestruct(ctx)
+//	if err != nil {
+//		log.ZError(ctx, "get conversation id need destruct failed", err)
+//		return
+//	}
+//	log.ZDebug(context.Background(), "nums conversations need destruct", "nums", len(conversations))
+//	for _, conversation := range conversations {
+//		ctx = mcontext.NewCtx(utils.GetSelfFuncName() + "-" + utils.OperationIDGenerator() + "-" + conversation.ConversationID + "-" + conversation.OwnerUserID)
+//		log.ZDebug(
+//			ctx,
+//			"UserMsgsDestruct",
+//			"conversationID",
+//			conversation.ConversationID,
+//			"ownerUserID",
+//			conversation.OwnerUserID,
+//			"msgDestructTime",
+//			conversation.MsgDestructTime,
+//			"lastMsgDestructTime",
+//			conversation.LatestMsgDestructTime,
+//		)
+//		now := time.Now()
+//		seqs, err := c.msgDatabase.UserMsgsDestruct(ctx, conversation.OwnerUserID, conversation.ConversationID, conversation.MsgDestructTime, conversation.LatestMsgDestructTime)
 //		if err != nil {
-//			log.ZError(ctx, "get conversation id need destruct failed", err)
-//			return
+//			log.ZError(ctx, "user msg destruct failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
+//			continue
 //		}
-//		log.ZDebug(context.Background(), "nums conversations need destruct", "nums", len(conversations))
-//		for _, conversation := range conversations {
-//			ctx = mcontext.NewCtx(utils.GetSelfFuncName() + "-" + utils.OperationIDGenerator() + "-" + conversation.ConversationID + "-" + conversation.OwnerUserID)
-//			log.ZDebug(
-//				ctx,
-//				"UserMsgsDestruct",
-//				"conversationID",
-//				conversation.ConversationID,
-//				"ownerUserID",
-//				conversation.OwnerUserID,
-//				"msgDestructTime",
-//				conversation.MsgDestructTime,
-//				"lastMsgDestructTime",
-//				conversation.LatestMsgDestructTime,
-//			)
-//			now := time.Now()
-//			seqs, err := c.msgDatabase.UserMsgsDestruct(ctx, conversation.OwnerUserID, conversation.ConversationID, conversation.MsgDestructTime, conversation.LatestMsgDestructTime)
-//			if err != nil {
-//				log.ZError(ctx, "user msg destruct failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
+//		if len(seqs) > 0 {
+// 			if err := c.conversationDatabase.UpdateUsersConversationFiled(ctx, []string{conversation.OwnerUserID}, conversation.ConversationID, map[string]interface{}{"latest_msg_destruct_time": now}); err
+// != nil {
+//				log.ZError(ctx, "updateUsersConversationFiled failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
 //				continue
 //			}
-//			if len(seqs) > 0 {
-//				if err := c.conversationDatabase.UpdateUsersConversationField(ctx, []string{conversation.OwnerUserID}, conversation.ConversationID, map[string]interface{}{"latest_msg_destruct_time": now}); err
-//
-//	!= nil {
-//					log.ZError(ctx, "updateUsersConversationField failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
-//					continue
-//				}
-//				if err := c.msgNotificationSender.UserDeleteMsgsNotification(ctx, conversation.OwnerUserID, conversation.ConversationID, seqs); err != nil {
-//					log.ZError(ctx, "userDeleteMsgsNotification failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
-//				}
+//			if err := c.msgNotificationSender.UserDeleteMsgsNotification(ctx, conversation.OwnerUserID, conversation.ConversationID, seqs); err != nil {
+//				log.ZError(ctx, "userDeleteMsgsNotification failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
 //			}
 //		}
 //	}
-func (c *MsgTool) ConversationsDestructMsgs() {
+//}
 
-	log.ZInfo(context.Background(), "start msg destruct cron task")     // 日志：开始消息自毁定时任务
-	ctx := mcontext.NewCtx(utils.GetSelfFuncName())                     // 新建上下文，带当前函数名
-	num, err := c.conversationDatabase.GetAllConversationIDsNumber(ctx) // 获取所有会话ID的数量
+func (c *MsgTool) ConversationsDestructMsgs() {
+	log.ZInfo(context.Background(), "start msg destruct cron task")
+	ctx := mcontext.NewCtx(utils.GetSelfFuncName())
+	num, err := c.conversationDatabase.GetAllConversationIDsNumber(ctx)
 	if err != nil {
-		log.ZError(ctx, "GetAllConversationIDsNumber failed", err) // 日志：获取数量失败
-		return                                                     // 失败直接返回
+		log.ZError(ctx, "GetAllConversationIDsNumber failed", err)
+		return
 	}
-	const batchNum = 50                                        // 每批处理的会话数量
-	log.ZDebug(ctx, "GetAllConversationIDsNumber", "num", num) // 日志：输出获取到的会话总数
+	const batchNum = 50
+	log.ZDebug(ctx, "GetAllConversationIDsNumber", "num", num)
 	if num == 0 {
-		return // 没有会话直接返回
+		return
 	}
-	count := int(num/batchNum + num/batchNum/2) // 计算本次循环处理的次数（稍微多处理一些）
+	count := int(num/batchNum + num/batchNum/2)
 	if count < 1 {
-		count = 1 // 至少处理一次
+		count = 1
 	}
-	maxPage := 1 + num/batchNum // 最大页码（分多少批处理）
+	maxPage := 1 + num/batchNum
 	if num%batchNum != 0 {
-		maxPage++ // 如果最后一页不是满的，页码再加1
+		maxPage++
 	}
-	for i := 0; i < count; i++ { // 循环处理，每次随机选一页
-		pageNumber := rand.Int63() % maxPage // 随机选择页码
+	for i := 0; i < count; i++ {
+		pageNumber := rand.Int63() % maxPage
 		pagination := &sdkws.RequestPagination{
-			PageNumber: int32(pageNumber), // 页码
-			ShowNumber: batchNum,          // 每页数量
+			PageNumber: int32(pageNumber),
+			ShowNumber: batchNum,
 		}
-		conversationIDs, err := c.conversationDatabase.PageConversationIDs(ctx, pagination) // 分页获取会话ID
+		conversationIDs, err := c.conversationDatabase.PageConversationIDs(ctx, pagination)
 		if err != nil {
-			log.ZError(ctx, "PageConversationIDs failed", err, "pageNumber", pageNumber) // 获取失败日志
-			continue                                                                     // 失败跳过
+			log.ZError(ctx, "PageConversationIDs failed", err, "pageNumber", pageNumber)
+			continue
 		}
-		log.ZError(ctx, "PageConversationIDs failed", err, "pageNumber", pageNumber, "conversationIDsNum", len(conversationIDs), "conversationIDs", conversationIDs) // 输出本次分页结果日志
+		log.ZError(ctx, "PageConversationIDs failed", err, "pageNumber", pageNumber, "conversationIDsNum", len(conversationIDs), "conversationIDs", conversationIDs)
 		if len(conversationIDs) == 0 {
-			continue // 没有会话ID跳过
+			continue
 		}
-		conversations, err := c.conversationDatabase.GetConversationsByConversationID(ctx, conversationIDs) // 根据会话ID获取会话详情
+		conversations, err := c.conversationDatabase.GetConversationsByConversationID(ctx, conversationIDs)
 		if err != nil {
-			log.ZError(ctx, "GetConversationsByConversationID failed", err, "conversationIDs", conversationIDs) // 获取失败日志
-			continue                                                                                            // 失败跳过
+			log.ZError(ctx, "GetConversationsByConversationID failed", err, "conversationIDs", conversationIDs)
+			continue
 		}
-		temp := make([]*relation.ConversationModel, 0, len(conversations)) // 临时数组，存放需要自毁消息的会话
-		for i, conversation := range conversations {                       // 遍历会话
-			// 判断是否开启消息自毁、时间条件是否满足
-			if conversation.IsMsgDestruct && conversation.MsgDestructTime != 0 &&
-				(time.Now().Unix() > (conversation.MsgDestructTime+conversation.LatestMsgDestructTime.Unix()+8*60*60)) ||
+		temp := make([]*relation.ConversationModel, 0, len(conversations))
+		for i, conversation := range conversations {
+			if conversation.IsMsgDestruct && conversation.MsgDestructTime != 0 && (time.Now().Unix() > (conversation.MsgDestructTime+conversation.LatestMsgDestructTime.Unix()+8*60*60)) ||
 				conversation.LatestMsgDestructTime.IsZero() {
-				temp = append(temp, conversations[i]) // 满足条件加入临时数组
+				temp = append(temp, conversations[i])
 			}
 		}
-		for _, conversation := range temp { // 对每个需要自毁的会话处理
-			ctx = mcontext.NewCtx(utils.GetSelfFuncName() + "-" + utils.OperationIDGenerator() + "-" + conversation.ConversationID + "-" + conversation.OwnerUserID) // 新建上下文，带操作ID和会话、用户信息
+		for _, conversation := range temp {
+			ctx = mcontext.NewCtx(utils.GetSelfFuncName() + "-" + utils.OperationIDGenerator() + "-" + conversation.ConversationID + "-" + conversation.OwnerUserID)
 			log.ZDebug(
 				ctx,
 				"UserMsgsDestruct",
@@ -132,22 +131,20 @@ func (c *MsgTool) ConversationsDestructMsgs() {
 				conversation.MsgDestructTime,
 				"lastMsgDestructTime",
 				conversation.LatestMsgDestructTime,
-			) // 日志：即将自毁消息的会话详细信息
-			now := time.Now()                                                                                                                                                         // 当前时间
-			seqs, err := c.msgDatabase.UserMsgsDestruct(ctx, conversation.OwnerUserID, conversation.ConversationID, conversation.MsgDestructTime, conversation.LatestMsgDestructTime) // 执行消息自毁，返回被删除消息的序号
+			)
+			now := time.Now()
+			seqs, err := c.msgDatabase.UserMsgsDestruct(ctx, conversation.OwnerUserID, conversation.ConversationID, conversation.MsgDestructTime, conversation.LatestMsgDestructTime)
 			if err != nil {
-				log.ZError(ctx, "user msg destruct failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID) // 自毁失败日志
-				continue                                                                                                                                 // 跳过
+				log.ZError(ctx, "user msg destruct failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
+				continue
 			}
-			if len(seqs) > 0 { // 有消息被删除
-				// 更新会话的最新自毁时间
-				if err := c.conversationDatabase.UpdateUsersConversationField(ctx, []string{conversation.OwnerUserID}, conversation.ConversationID, map[string]any{"latest_msg_destruct_time": now}); err != nil {
-					log.ZError(ctx, "updateUsersConversationField failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID) // 更新失败日志
-					continue                                                                                                                                            // 跳过
+			if len(seqs) > 0 {
+				if err := c.conversationDatabase.UpdateUsersConversationFiled(ctx, []string{conversation.OwnerUserID}, conversation.ConversationID, map[string]any{"latest_msg_destruct_time": now}); err != nil {
+					log.ZError(ctx, "updateUsersConversationFiled failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
+					continue
 				}
-				// 发送消息删除的通知
 				if err := c.msgNotificationSender.UserDeleteMsgsNotification(ctx, conversation.OwnerUserID, conversation.ConversationID, seqs); err != nil {
-					log.ZError(ctx, "userDeleteMsgsNotification failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID) // 通知发送失败日志
+					log.ZError(ctx, "userDeleteMsgsNotification failed", err, "conversationID", conversation.ConversationID, "ownerUserID", conversation.OwnerUserID)
 				}
 			}
 		}

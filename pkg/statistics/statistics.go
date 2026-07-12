@@ -36,7 +36,9 @@ func (s *Statistics) output() {
 	var timeIntervalNum uint64
 	for {
 		sum = *s.AllCount
-		<-t.C
+		select {
+		case <-t.C:
+		}
 		if *s.AllCount-sum <= 0 {
 			intervalCount = 0
 		} else {

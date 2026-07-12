@@ -17,15 +17,16 @@ package friend
 import (
 	"context"
 
+	pbfriend "baoim/protocol/friend"
+	"baoim/tools/utils"
+
 	cbapi "BaoIM-Server/pkg/callbackstruct"
 	"BaoIM-Server/pkg/common/config"
 	"BaoIM-Server/pkg/common/http"
-	pbfriend "baoim/protocol/friend"
-	"baoim/tools/utils"
 )
 
-func CallbackBeforeAddFriend(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.ApplyToAddFriendReq) error {
-	if !globalConfig.Callback.CallbackBeforeAddFriend.Enable {
+func CallbackBeforeAddFriend(ctx context.Context, req *pbfriend.ApplyToAddFriendReq) error {
+	if !config.Config.Callback.CallbackBeforeAddFriend.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeAddFriendReq{
@@ -36,14 +37,14 @@ func CallbackBeforeAddFriend(ctx context.Context, globalConfig *config.GlobalCon
 		Ex:              req.Ex,
 	}
 	resp := &cbapi.CallbackBeforeAddFriendResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeAddFriend); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeAddFriend); err != nil {
 		return err
 	}
 	return nil
 }
 
-func CallbackBeforeSetFriendRemark(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.SetFriendRemarkReq) error {
-	if !globalConfig.Callback.CallbackBeforeSetFriendRemark.Enable {
+func CallbackBeforeSetFriendRemark(ctx context.Context, req *pbfriend.SetFriendRemarkReq) error {
+	if !config.Config.Callback.CallbackBeforeSetFriendRemark.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeSetFriendRemarkReq{
@@ -53,15 +54,15 @@ func CallbackBeforeSetFriendRemark(ctx context.Context, globalConfig *config.Glo
 		Remark:          req.Remark,
 	}
 	resp := &cbapi.CallbackBeforeSetFriendRemarkResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeAddFriend); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeAddFriend); err != nil {
 		return err
 	}
 	utils.NotNilReplace(&req.Remark, &resp.Remark)
 	return nil
 }
 
-func CallbackAfterSetFriendRemark(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.SetFriendRemarkReq) error {
-	if !globalConfig.Callback.CallbackAfterSetFriendRemark.Enable {
+func CallbackAfterSetFriendRemark(ctx context.Context, req *pbfriend.SetFriendRemarkReq) error {
+	if !config.Config.Callback.CallbackAfterSetFriendRemark.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterSetFriendRemarkReq{
@@ -71,13 +72,13 @@ func CallbackAfterSetFriendRemark(ctx context.Context, globalConfig *config.Glob
 		Remark:          req.Remark,
 	}
 	resp := &cbapi.CallbackAfterSetFriendRemarkResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeAddFriend); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeAddFriend); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackBeforeAddBlack(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.AddBlackReq) error {
-	if !globalConfig.Callback.CallbackBeforeAddBlack.Enable {
+func CallbackBeforeAddBlack(ctx context.Context, req *pbfriend.AddBlackReq) error {
+	if !config.Config.Callback.CallbackBeforeAddBlack.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeAddBlackReq{
@@ -86,13 +87,13 @@ func CallbackBeforeAddBlack(ctx context.Context, globalConfig *config.GlobalConf
 		BlackUserID:     req.BlackUserID,
 	}
 	resp := &cbapi.CallbackBeforeAddBlackResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeAddBlack); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeAddBlack); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackAfterAddFriend(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.ApplyToAddFriendReq) error {
-	if !globalConfig.Callback.CallbackAfterAddFriend.Enable {
+func CallbackAfterAddFriend(ctx context.Context, req *pbfriend.ApplyToAddFriendReq) error {
+	if !config.Config.Callback.CallbackAfterAddFriend.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterAddFriendReq{
@@ -102,14 +103,15 @@ func CallbackAfterAddFriend(ctx context.Context, globalConfig *config.GlobalConf
 		ReqMsg:          req.ReqMsg,
 	}
 	resp := &cbapi.CallbackAfterAddFriendResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackAfterAddFriend); err != nil {
+	println("4", config.Config.Callback.CallbackUrl)
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackAfterAddFriend); err != nil {
 		return err
 	}
-
+	println("6")
 	return nil
 }
-func CallbackBeforeAddFriendAgree(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.RespondFriendApplyReq) error {
-	if !globalConfig.Callback.CallbackBeforeAddFriendAgree.Enable {
+func CallbackBeforeAddFriendAgree(ctx context.Context, req *pbfriend.RespondFriendApplyReq) error {
+	if !config.Config.Callback.CallbackBeforeAddFriendAgree.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeAddFriendAgreeReq{
@@ -120,13 +122,13 @@ func CallbackBeforeAddFriendAgree(ctx context.Context, globalConfig *config.Glob
 		HandleResult:    req.HandleResult,
 	}
 	resp := &cbapi.CallbackBeforeAddFriendAgreeResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeAddFriendAgree); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeAddFriendAgree); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackAfterDeleteFriend(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.DeleteFriendReq) error {
-	if !globalConfig.Callback.CallbackAfterDeleteFriend.Enable {
+func CallbackAfterDeleteFriend(ctx context.Context, req *pbfriend.DeleteFriendReq) error {
+	if !config.Config.Callback.CallbackAfterDeleteFriend.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterDeleteFriendReq{
@@ -135,13 +137,13 @@ func CallbackAfterDeleteFriend(ctx context.Context, globalConfig *config.GlobalC
 		FriendUserID:    req.FriendUserID,
 	}
 	resp := &cbapi.CallbackAfterDeleteFriendResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackAfterDeleteFriend); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackAfterDeleteFriend); err != nil {
 		return err
 	}
 	return nil
 }
-func CallbackBeforeImportFriends(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.ImportFriendReq) error {
-	if !globalConfig.Callback.CallbackBeforeImportFriends.Enable {
+func CallbackBeforeImportFriends(ctx context.Context, req *pbfriend.ImportFriendReq) error {
+	if !config.Config.Callback.CallbackBeforeImportFriends.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackBeforeImportFriendsReq{
@@ -150,7 +152,7 @@ func CallbackBeforeImportFriends(ctx context.Context, globalConfig *config.Globa
 		FriendUserIDs:   req.FriendUserIDs,
 	}
 	resp := &cbapi.CallbackBeforeImportFriendsResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackBeforeImportFriends); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackBeforeImportFriends); err != nil {
 		return err
 	}
 	if len(resp.FriendUserIDs) != 0 {
@@ -158,8 +160,8 @@ func CallbackBeforeImportFriends(ctx context.Context, globalConfig *config.Globa
 	}
 	return nil
 }
-func CallbackAfterImportFriends(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.ImportFriendReq) error {
-	if !globalConfig.Callback.CallbackAfterImportFriends.Enable {
+func CallbackAfterImportFriends(ctx context.Context, req *pbfriend.ImportFriendReq) error {
+	if !config.Config.Callback.CallbackAfterImportFriends.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterImportFriendsReq{
@@ -168,14 +170,14 @@ func CallbackAfterImportFriends(ctx context.Context, globalConfig *config.Global
 		FriendUserIDs:   req.FriendUserIDs,
 	}
 	resp := &cbapi.CallbackAfterImportFriendsResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackAfterImportFriends); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackAfterImportFriends); err != nil {
 		return err
 	}
 	return nil
 }
 
-func CallbackAfterRemoveBlack(ctx context.Context, globalConfig *config.GlobalConfig, req *pbfriend.RemoveBlackReq) error {
-	if !globalConfig.Callback.CallbackAfterRemoveBlack.Enable {
+func CallbackAfterRemoveBlack(ctx context.Context, req *pbfriend.RemoveBlackReq) error {
+	if !config.Config.Callback.CallbackAfterRemoveBlack.Enable {
 		return nil
 	}
 	cbReq := &cbapi.CallbackAfterRemoveBlackReq{
@@ -184,7 +186,7 @@ func CallbackAfterRemoveBlack(ctx context.Context, globalConfig *config.GlobalCo
 		BlackUserID:     req.BlackUserID,
 	}
 	resp := &cbapi.CallbackAfterRemoveBlackResp{}
-	if err := http.CallBackPostReturn(ctx, globalConfig.Callback.CallbackUrl, cbReq, resp, globalConfig.Callback.CallbackAfterRemoveBlack); err != nil {
+	if err := http.CallBackPostReturn(ctx, config.Config.Callback.CallbackUrl, cbReq, resp, config.Config.Callback.CallbackAfterRemoveBlack); err != nil {
 		return err
 	}
 	return nil

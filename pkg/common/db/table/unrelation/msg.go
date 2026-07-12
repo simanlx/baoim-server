@@ -20,8 +20,10 @@ import (
 	"time"
 
 	"baoim/protocol/msg"
-	"baoim/protocol/sdkws"
+
 	"go.mongodb.org/mongo-driver/mongo"
+
+	"baoim/protocol/sdkws"
 )
 
 const (
@@ -75,6 +77,7 @@ type MsgDataModel struct {
 	AtUserIDList     []string          `bson:"at_user_id_list"`
 	AttachedInfo     string            `bson:"attached_info"`
 	Ex               string            `bson:"ex"`
+	KeyVersion       int32             `bson:"key_version"`
 }
 
 type MsgInfoModel struct {

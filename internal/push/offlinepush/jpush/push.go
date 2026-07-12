@@ -25,12 +25,10 @@ import (
 	http2 "BaoIM-Server/pkg/common/http"
 )
 
-type JPush struct {
-	config *config.GlobalConfig
-}
+type JPush struct{}
 
-func NewClient(config *config.GlobalConfig) *JPush {
-	return &JPush{config: config}
+func NewClient() *JPush {
+	return &JPush{}
 }
 
 func (j *JPush) Auth(apiKey, secretKey string, timeStamp int64) (token string, err error) {
@@ -61,12 +59,10 @@ func (j *JPush) Push(ctx context.Context, userIDs []string, title, content strin
 	no.IOSEnableMutableContent()
 	no.SetExtras(extras)
 	no.SetAlert(title)
-	no.SetAndroidIntent(j.config)
-
 	var msg body.Message
 	msg.SetMsgContent(content)
 	var opt body.Options
-	opt.SetApnsProduction(j.config.IOSPush.Production)
+	opt.SetApnsProduction(config.Config.IOSPush.Production)
 	var pushObj body.PushObj
 	pushObj.SetPlatform(&pf)
 	pushObj.SetAudience(&au)
@@ -80,9 +76,9 @@ func (j *JPush) Push(ctx context.Context, userIDs []string, title, content strin
 func (j *JPush) request(ctx context.Context, po body.PushObj, resp any, timeout int) error {
 	return http2.PostReturn(
 		ctx,
-		j.config.Push.Jpns.PushUrl,
+		config.Config.Push.Jpns.PushUrl,
 		map[string]string{
-			"Authorization": j.getAuthorization(j.config.Push.Jpns.AppKey, j.config.Push.Jpns.MasterSecret),
+			"Authorization": j.getAuthorization(config.Config.Push.Jpns.AppKey, config.Config.Push.Jpns.MasterSecret),
 		},
 		po,
 		resp,

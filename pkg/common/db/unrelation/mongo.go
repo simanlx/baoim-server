@@ -21,13 +21,16 @@ import (
 	"strings"
 	"time"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/table/unrelation"
-	"baoim/tools/errs"
-	"baoim/tools/mw/specialerror"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+
+	"baoim/tools/errs"
+	"baoim/tools/mw/specialerror"
+	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/table/unrelation"
 )
 
 const (
@@ -36,14 +39,13 @@ const (
 )
 
 type Mongo struct {
-	db     *mongo.Client
-	config *config.GlobalConfig
+	db *mongo.Client
 }
 
 // NewMongo Initialize MongoDB connection.
-func NewMongo(config *config.GlobalConfig) (*Mongo, error) {
+func NewMongo() (*Mongo, error) {
 	specialerror.AddReplace(mongo.ErrNoDocuments, errs.ErrRecordNotFound)
-	uri := buildMongoURI(config)
+	uri := buildMongoURI()
 
 	var mongoClient *mongo.Client
 	var err error
@@ -54,27 +56,26 @@ func NewMongo(config *config.GlobalConfig) (*Mongo, error) {
 		defer cancel()
 		mongoClient, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
 		if err == nil {
-			if err = mongoClient.Ping(ctx, nil); err != nil {
-				return nil, errs.Wrap(err, uri)
-			}
-			return &Mongo{db: mongoClient, config: config}, nil
+			return &Mongo{db: mongoClient}, nil
 		}
 		if shouldRetry(err) {
+			fmt.Printf("Failed to connect to MongoDB, retrying: %s\n", err)
 			time.Sleep(time.Second) // exponential backoff could be implemented here
 			continue
 		}
+		return nil, err
 	}
-	return nil, errs.Wrap(err, uri)
+	return nil, err
 }
 
-func buildMongoURI(config *config.GlobalConfig) string {
+func buildMongoURI() string {
 	uri := os.Getenv("MONGO_URI")
 	if uri != "" {
 		return uri
 	}
 
-	if config.Mongo.Uri != "" {
-		return config.Mongo.Uri
+	if config.Config.Mongo.Uri != "" {
+		return config.Config.Mongo.Uri
 	}
 
 	username := os.Getenv("MONGO_OPENIM_USERNAME")
@@ -85,28 +86,29 @@ func buildMongoURI(config *config.GlobalConfig) string {
 	maxPoolSize := os.Getenv("MONGO_MAX_POOL_SIZE")
 
 	if username == "" {
-		username = config.Mongo.Username
+		username = config.Config.Mongo.Username
 	}
 	if password == "" {
-		password = config.Mongo.Password
+		password = config.Config.Mongo.Password
 	}
 	if address == "" {
-		address = strings.Join(config.Mongo.Address, ",")
+		address = strings.Join(config.Config.Mongo.Address, ",")
 	} else if port != "" {
 		address = fmt.Sprintf("%s:%s", address, port)
 	}
 	if database == "" {
-		database = config.Mongo.Database
+		database = config.Config.Mongo.Database
 	}
 	if maxPoolSize == "" {
-		maxPoolSize = fmt.Sprint(config.Mongo.MaxPoolSize)
+		maxPoolSize = fmt.Sprint(config.Config.Mongo.MaxPoolSize)
 	}
 
+	uriFormat := "mongodb://%s/%s?maxPoolSize=%s"
 	if username != "" && password != "" {
-
-		return fmt.Sprintf("mongodb://%s:%s@%s/%s?maxPoolSize=%s", username, password, address, database, maxPoolSize)
+		uriFormat = "mongodb://%s:%s@%s/%s?maxPoolSize=%s"
+		return fmt.Sprintf(uriFormat, username, password, address, database, maxPoolSize)
 	}
-	return fmt.Sprintf("mongodb://%s/%s?maxPoolSize=%s", address, database, maxPoolSize)
+	return fmt.Sprintf(uriFormat, address, database, maxPoolSize)
 }
 
 func shouldRetry(err error) bool {
@@ -122,8 +124,8 @@ func (m *Mongo) GetClient() *mongo.Client {
 }
 
 // GetDatabase returns the specific database from MongoDB.
-func (m *Mongo) GetDatabase(database string) *mongo.Database {
-	return m.db.Database(database)
+func (m *Mongo) GetDatabase() *mongo.Database {
+	return m.db.Database(config.Config.Mongo.Database)
 }
 
 // CreateMsgIndex creates an index for messages in MongoDB.
@@ -133,7 +135,7 @@ func (m *Mongo) CreateMsgIndex() error {
 
 // createMongoIndex creates an index in a MongoDB collection.
 func (m *Mongo) createMongoIndex(collection string, isUnique bool, keys ...string) error {
-	db := m.GetDatabase(m.config.Mongo.Database).Collection(collection)
+	db := m.GetDatabase().Collection(collection)
 	opts := options.CreateIndexes().SetMaxTime(10 * time.Second)
 	indexView := db.Indexes()
 
@@ -148,7 +150,7 @@ func (m *Mongo) createMongoIndex(collection string, isUnique bool, keys ...strin
 
 	_, err := indexView.CreateOne(context.Background(), index, opts)
 	if err != nil {
-		return errs.Wrap(err, "CreateIndex")
+		return utils.Wrap(err, "CreateIndex")
 	}
 	return nil
 }

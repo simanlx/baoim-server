@@ -197,32 +197,30 @@ func (p *Prometheus) SetListenAddressWithRouter(listenAddress string, r *gin.Eng
 }
 
 // SetMetricsPath set metrics paths.
-func (p *Prometheus) SetMetricsPath(e *gin.Engine) error {
+func (p *Prometheus) SetMetricsPath(e *gin.Engine) {
 
 	if p.listenAddress != "" {
 		p.router.GET(p.MetricsPath, prometheusHandler())
-		return p.runServer()
+		p.runServer()
 	} else {
 		e.GET(p.MetricsPath, prometheusHandler())
-		return nil
 	}
 }
 
 // SetMetricsPathWithAuth set metrics paths with authentication.
-func (p *Prometheus) SetMetricsPathWithAuth(e *gin.Engine, accounts gin.Accounts) error {
+func (p *Prometheus) SetMetricsPathWithAuth(e *gin.Engine, accounts gin.Accounts) {
 
 	if p.listenAddress != "" {
 		p.router.GET(p.MetricsPath, gin.BasicAuth(accounts), prometheusHandler())
-		return p.runServer()
+		p.runServer()
 	} else {
 		e.GET(p.MetricsPath, gin.BasicAuth(accounts), prometheusHandler())
-		return nil
 	}
 
 }
 
-func (p *Prometheus) runServer() error {
-	return p.router.Run(p.listenAddress)
+func (p *Prometheus) runServer() {
+	go p.router.Run(p.listenAddress)
 }
 
 func (p *Prometheus) getMetrics() []byte {
@@ -368,15 +366,15 @@ func (p *Prometheus) registerMetrics(subsystem string) {
 }
 
 // Use adds the middleware to a gin engine.
-func (p *Prometheus) Use(e *gin.Engine) error {
+func (p *Prometheus) Use(e *gin.Engine) {
 	e.Use(p.HandlerFunc())
-	return p.SetMetricsPath(e)
+	p.SetMetricsPath(e)
 }
 
 // UseWithAuth adds the middleware to a gin engine with BasicAuth.
-func (p *Prometheus) UseWithAuth(e *gin.Engine, accounts gin.Accounts) error {
+func (p *Prometheus) UseWithAuth(e *gin.Engine, accounts gin.Accounts) {
 	e.Use(p.HandlerFunc())
-	return p.SetMetricsPathWithAuth(e, accounts)
+	p.SetMetricsPathWithAuth(e, accounts)
 }
 
 // HandlerFunc defines handler function for middleware.

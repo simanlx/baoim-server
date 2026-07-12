@@ -15,11 +15,9 @@
 package msggateway
 
 import (
-	"errors"
 	"net/http"
 	"time"
 
-	"baoim/tools/errs"
 	"github.com/gorilla/websocket"
 )
 
@@ -74,8 +72,7 @@ func (d *GWebSocket) GenerateLongConn(w http.ResponseWriter, r *http.Request) er
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		// The upgrader.Upgrade method usually returns enough error messages to diagnose problems that may occur during the upgrade
-		return errs.Wrap(err, "GenerateLongConn: WebSocket upgrade failed")
+		return err
 	}
 	d.conn = conn
 	return nil
@@ -99,16 +96,7 @@ func (d *GWebSocket) SetReadDeadline(timeout time.Duration) error {
 }
 
 func (d *GWebSocket) SetWriteDeadline(timeout time.Duration) error {
-	// TODO add error
-	if timeout <= 0 {
-		return errs.Wrap(errors.New("timeout must be greater than 0"))
-	}
-
-	// TODO SetWriteDeadline Future add error handling
-	if err := d.conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
-		return errs.Wrap(err, "GWebSocket.SetWriteDeadline failed")
-	}
-	return nil
+	return d.conn.SetWriteDeadline(time.Now().Add(timeout))
 }
 
 func (d *GWebSocket) Dial(urlStr string, requestHeader http.Header) (*http.Response, error) {
@@ -120,12 +108,10 @@ func (d *GWebSocket) Dial(urlStr string, requestHeader http.Header) (*http.Respo
 }
 
 func (d *GWebSocket) IsNil() bool {
-	return d.conn == nil
-	//
-	// if d.conn != nil {
-	// 	return false
-	// }
-	// return true
+	if d.conn != nil {
+		return false
+	}
+	return true
 }
 
 func (d *GWebSocket) SetConnNil() {

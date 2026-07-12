@@ -17,22 +17,24 @@ package controller
 import (
 	"context"
 
+	"baoim/tools/pagination"
+
+	"baoim/tools/log"
+	"baoim/tools/utils"
+
 	"BaoIM-Server/pkg/common/db/cache"
 	"BaoIM-Server/pkg/common/db/table/relation"
-	"baoim/tools/log"
-	"baoim/tools/pagination"
-	"baoim/tools/utils"
 )
 
 type BlackDatabase interface {
-	// Create add BlackList
+	// Create 增加黑名单
 	Create(ctx context.Context, blacks []*relation.BlackModel) (err error)
-	// Delete delete BlackList
+	// Delete 删除黑名单
 	Delete(ctx context.Context, blacks []*relation.BlackModel) (err error)
-	// FindOwnerBlacks get BlackList list
+	// FindOwnerBlacks 获取黑名单列表
 	FindOwnerBlacks(ctx context.Context, ownerUserID string, pagination pagination.Pagination) (total int64, blacks []*relation.BlackModel, err error)
 	FindBlackInfos(ctx context.Context, ownerUserID string, userIDs []string) (blacks []*relation.BlackModel, err error)
-	// CheckIn Check whether user2 is in the black list of user1 (inUser1Blacks==true) Check whether user1 is in the black list of user2 (inUser2Blacks==true)
+	// CheckIn 检查user2是否在user1的黑名单列表中(inUser1Blacks==true) 检查user1是否在user2的黑名单列表中(inUser2Blacks==true)
 	CheckIn(ctx context.Context, userID1, userID2 string) (inUser1Blacks bool, inUser2Blacks bool, err error)
 }
 
@@ -45,38 +47,43 @@ func NewBlackDatabase(black relation.BlackModelInterface, cache cache.BlackCache
 	return &blackDatabase{black, cache}
 }
 
-// Create Add Blacklist.
+// Create 增加黑名单.
 func (b *blackDatabase) Create(ctx context.Context, blacks []*relation.BlackModel) (err error) {
 	if err := b.black.Create(ctx, blacks); err != nil {
 		return err
 	}
+
 	return b.deleteBlackIDsCache(ctx, blacks)
 }
 
-// Delete Delete Blacklist.
+// Delete 删除黑名单.
 func (b *blackDatabase) Delete(ctx context.Context, blacks []*relation.BlackModel) (err error) {
 	if err := b.black.Delete(ctx, blacks); err != nil {
 		return err
 	}
+
 	return b.deleteBlackIDsCache(ctx, blacks)
 }
 
-// FindOwnerBlacks Get Blacklist List.
 func (b *blackDatabase) deleteBlackIDsCache(ctx context.Context, blacks []*relation.BlackModel) (err error) {
 	cache := b.cache.NewCache()
 	for _, black := range blacks {
 		cache = cache.DelBlackIDs(ctx, black.OwnerUserID)
 	}
+
 	return cache.ExecDel(ctx)
 }
 
-// FindOwnerBlacks Get Blacklist List.
+// FindOwnerBlacks 获取黑名单列表.
 func (b *blackDatabase) FindOwnerBlacks(ctx context.Context, ownerUserID string, pagination pagination.Pagination) (total int64, blacks []*relation.BlackModel, err error) {
 	return b.black.FindOwnerBlacks(ctx, ownerUserID, pagination)
 }
 
-// FindOwnerBlacks Get Blacklist List.
-func (b *blackDatabase) CheckIn(ctx context.Context, userID1, userID2 string) (inUser1Blacks bool, inUser2Blacks bool, err error) {
+// CheckIn 检查user2是否在user1的黑名单列表中(inUser1Blacks==true) 检查user1是否在user2的黑名单列表中(inUser2Blacks==true).
+func (b *blackDatabase) CheckIn(
+	ctx context.Context,
+	userID1, userID2 string,
+) (inUser1Blacks bool, inUser2Blacks bool, err error) {
 	userID1BlackIDs, err := b.cache.GetBlackIDs(ctx, userID1)
 	if err != nil {
 		return
@@ -86,15 +93,14 @@ func (b *blackDatabase) CheckIn(ctx context.Context, userID1, userID2 string) (i
 		return
 	}
 	log.ZDebug(ctx, "blackIDs", "user1BlackIDs", userID1BlackIDs, "user2BlackIDs", userID2BlackIDs)
+
 	return utils.IsContain(userID2, userID1BlackIDs), utils.IsContain(userID1, userID2BlackIDs), nil
 }
 
-// FindBlackIDs Get Blacklist List.
 func (b *blackDatabase) FindBlackIDs(ctx context.Context, ownerUserID string) (blackIDs []string, err error) {
 	return b.cache.GetBlackIDs(ctx, ownerUserID)
 }
 
-// FindBlackInfos Get Blacklist List.
 func (b *blackDatabase) FindBlackInfos(ctx context.Context, ownerUserID string, userIDs []string) (blacks []*relation.BlackModel, err error) {
 	return b.black.FindOwnerBlackInfos(ctx, ownerUserID, userIDs)
 }

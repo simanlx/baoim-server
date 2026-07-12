@@ -21,7 +21,7 @@ import (
 	"errors"
 	"os"
 
-	"baoim/tools/errs"
+	"BaoIM-Server/pkg/common/config"
 )
 
 // decryptPEM decrypts a PEM block using a password.
@@ -49,40 +49,37 @@ func readEncryptablePEMBlock(path string, pwd []byte) ([]byte, error) {
 }
 
 // NewTLSConfig setup the TLS config from general config file.
-func NewTLSConfig(clientCertFile, clientKeyFile, caCertFile string, keyPwd []byte, insecureSkipVerify bool) (*tls.Config, error) {
+func NewTLSConfig(clientCertFile, clientKeyFile, caCertFile string, keyPwd []byte) *tls.Config {
 	tlsConfig := tls.Config{}
 
 	if clientCertFile != "" && clientKeyFile != "" {
 		certPEMBlock, err := os.ReadFile(clientCertFile)
 		if err != nil {
-			return nil, errs.Wrap(err, "NewTLSConfig: failed to read client cert file")
+			panic(err)
 		}
 		keyPEMBlock, err := readEncryptablePEMBlock(clientKeyFile, keyPwd)
 		if err != nil {
-			return nil, err
+			panic(err)
 		}
-
 		cert, err := tls.X509KeyPair(certPEMBlock, keyPEMBlock)
 		if err != nil {
-			return nil, errs.Wrap(err, "NewTLSConfig: failed to create X509 key pair")
+			panic(err)
 		}
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	if caCertFile != "" {
-		caCert, err := os.ReadFile(caCertFile)
-		if err != nil {
-			return nil, errs.Wrap(err, "NewTLSConfig: failed to read CA cert file")
-		}
-
-		caCertPool := x509.NewCertPool()
-		if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-			return nil, errors.New("NewTLSConfig: not a valid CA cert")
-		}
-		tlsConfig.RootCAs = caCertPool
+	caCert, err := os.ReadFile(caCertFile)
+	if err != nil {
+		panic(err)
 	}
+	caCertPool := x509.NewCertPool()
+	ok := caCertPool.AppendCertsFromPEM(caCert)
+	if !ok {
+		panic(errors.New("not a valid CA cert"))
+	}
+	tlsConfig.RootCAs = caCertPool
 
-	tlsConfig.InsecureSkipVerify = insecureSkipVerify
+	tlsConfig.InsecureSkipVerify = config.Config.Kafka.TLS.InsecureSkipVerify
 
-	return &tlsConfig, nil
+	return &tlsConfig
 }

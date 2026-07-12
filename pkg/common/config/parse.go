@@ -24,7 +24,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"BaoIM-Server/pkg/msgprocessor"
-	"BaoIM-Server/pkg/util/genutil"
 )
 
 //go:embed version
@@ -38,30 +37,19 @@ const (
 
 // return absolude path join ../config/, this is k8s container config path.
 func GetDefaultConfigPath() string {
-	executablePath, err := os.Executable()
+	b, err := filepath.Abs(os.Args[0])
 	if err != nil {
-		fmt.Println("GetDefaultConfigPath error:", err.Error())
+		fmt.Println("filepath.Abs error,err=", err)
 		return ""
 	}
-
-	configPath, err := genutil.OutDir(filepath.Join(filepath.Dir(executablePath), "../config/"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get output directory: %v\n", err)
-		os.Exit(1)
-	}
-	return configPath
+	return filepath.Join(filepath.Dir(b), "../config/")
 }
 
 // getProjectRoot returns the absolute path of the project root directory.
 func GetProjectRoot() string {
-	executablePath, _ := os.Executable()
+	b, _ := filepath.Abs(os.Args[0])
 
-	projectRoot, err := genutil.OutDir(filepath.Join(filepath.Dir(executablePath), "../../../../.."))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to get output directory: %v\n", err)
-		os.Exit(1)
-	}
-	return projectRoot
+	return filepath.Join(filepath.Dir(b), "../../../../..")
 }
 
 func GetOptionsByNotification(cfg NotificationConf) msgprocessor.Options {
@@ -83,9 +71,6 @@ func GetOptionsByNotification(cfg NotificationConf) msgprocessor.Options {
 	return opts
 }
 
-// initConfig loads configuration from a specified path into the provided config structure.
-// If the specified config file does not exist, it attempts to load from the project's default "config" directory.
-// It logs informative messages regarding the configuration path being used.
 func initConfig(config any, configName, configFolderPath string) error {
 	configFolderPath = filepath.Join(configFolderPath, configName)
 	_, err := os.Stat(configFolderPath)
@@ -104,12 +89,12 @@ func initConfig(config any, configName, configFolderPath string) error {
 	if err = yaml.Unmarshal(data, config); err != nil {
 		return fmt.Errorf("unmarshal yaml error: %w", err)
 	}
-	fmt.Println("The path of the configuration file to start the process:", configFolderPath)
+	fmt.Println("use config", configFolderPath)
 
 	return nil
 }
 
-func InitConfig(config *GlobalConfig, configFolderPath string) error {
+func InitConfig(configFolderPath string) error {
 	if configFolderPath == "" {
 		envConfigPath := os.Getenv("OPENIMCONFIG")
 		if envConfigPath != "" {
@@ -119,9 +104,11 @@ func InitConfig(config *GlobalConfig, configFolderPath string) error {
 		}
 	}
 
-	if err := initConfig(config, FileName, configFolderPath); err != nil {
+	if err := initConfig(&Config, FileName, configFolderPath); err != nil {
+		print("uuu")
+		print(configFolderPath)
 		return err
 	}
 
-	return initConfig(&config.Notification, NotificationFileName, configFolderPath)
+	return initConfig(&Config.Notification, NotificationFileName, configFolderPath)
 }

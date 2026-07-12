@@ -18,14 +18,19 @@ import (
 	"context"
 	"time"
 
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/table/relation"
-	unrelationtb "BaoIM-Server/pkg/common/db/table/unrelation"
-	"baoim/protocol/user"
-	"baoim/tools/errs"
 	"baoim/tools/pagination"
 	"baoim/tools/tx"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
+
+	"baoim/protocol/user"
+
+	unrelationtb "BaoIM-Server/pkg/common/db/table/unrelation"
+
+	"baoim/tools/errs"
 	"baoim/tools/utils"
+
+	"BaoIM-Server/pkg/common/db/cache"
 )
 
 type UserDatabase interface {
@@ -44,9 +49,7 @@ type UserDatabase interface {
 	// UpdateByMap update (zero value) external guarantee userID exists
 	UpdateByMap(ctx context.Context, userID string, args map[string]any) (err error)
 	// FindUser
-	PageFindUser(ctx context.Context, level1 int64, level2 int64, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error)
-	//FindUser with keyword
-	PageFindUserWithKeyword(ctx context.Context, level1 int64, level2 int64, userID string, nickName string, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error)
+	PageFindUser(ctx context.Context, level int64, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error)
 	// Page If not found, no error is returned
 	Page(ctx context.Context, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error)
 	// IsExist true as long as one exists
@@ -75,11 +78,10 @@ type UserDatabase interface {
 	SetUserStatus(ctx context.Context, userID string, status, platformID int32) error
 
 	//CRUD user command
-	AddUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string, ex string) error
+	AddUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string) error
 	DeleteUserCommand(ctx context.Context, userID string, Type int32, UUID string) error
-	UpdateUserCommand(ctx context.Context, userID string, Type int32, UUID string, val map[string]any) error
+	UpdateUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string) error
 	GetUserCommands(ctx context.Context, userID string, Type int32) ([]*user.CommandInfoResp, error)
-	GetAllUserCommands(ctx context.Context, userID string) ([]*user.AllCommandInfoResp, error)
 }
 
 type userDatabase struct {
@@ -137,12 +139,12 @@ func (u *userDatabase) Find(ctx context.Context, userIDs []string) (users []*rel
 	return u.cache.GetUsersInfo(ctx, userIDs)
 }
 
-// Find userInfo By Nickname.
+// Find userInfo By Nickname
 func (u *userDatabase) FindByNickname(ctx context.Context, nickname string) (users []*relation.UserModel, err error) {
 	return u.userDB.TakeByNickname(ctx, nickname)
 }
 
-// Find notificationAccouts.
+// Find notificationAccouts
 func (u *userDatabase) FindNotification(ctx context.Context, level int64) (users []*relation.UserModel, err error) {
 	return u.userDB.TakeNotification(ctx, level)
 }
@@ -182,18 +184,8 @@ func (u *userDatabase) Page(ctx context.Context, pagination pagination.Paginatio
 	return u.userDB.Page(ctx, pagination)
 }
 
-func (u *userDatabase) PageFindUser(ctx context.Context, level1 int64, level2 int64, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error) {
-	return u.userDB.PageFindUser(ctx, level1, level2, pagination)
-}
-
-func (u *userDatabase) PageFindUserWithKeyword(
-	ctx context.Context,
-	level1 int64,
-	level2 int64,
-	userID, nickName string,
-	pagination pagination.Pagination,
-) (count int64, users []*relation.UserModel, err error) {
-	return u.userDB.PageFindUserWithKeyword(ctx, level1, level2, userID, nickName, pagination)
+func (u *userDatabase) PageFindUser(ctx context.Context, level int64, pagination pagination.Pagination) (count int64, users []*relation.UserModel, err error) {
+	return u.userDB.PageFindUser(ctx, level, pagination)
 }
 
 // IsExist Does userIDs exist? As long as there is one, it will be true.
@@ -267,20 +259,16 @@ func (u *userDatabase) GetUserStatus(ctx context.Context, userIDs []string) ([]*
 func (u *userDatabase) SetUserStatus(ctx context.Context, userID string, status, platformID int32) error {
 	return u.cache.SetUserStatus(ctx, userID, status, platformID)
 }
-func (u *userDatabase) AddUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string, ex string) error {
-	return u.userDB.AddUserCommand(ctx, userID, Type, UUID, value, ex)
+func (u *userDatabase) AddUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string) error {
+	return u.userDB.AddUserCommand(ctx, userID, Type, UUID, value)
 }
 func (u *userDatabase) DeleteUserCommand(ctx context.Context, userID string, Type int32, UUID string) error {
 	return u.userDB.DeleteUserCommand(ctx, userID, Type, UUID)
 }
-func (u *userDatabase) UpdateUserCommand(ctx context.Context, userID string, Type int32, UUID string, val map[string]any) error {
-	return u.userDB.UpdateUserCommand(ctx, userID, Type, UUID, val)
+func (u *userDatabase) UpdateUserCommand(ctx context.Context, userID string, Type int32, UUID string, value string) error {
+	return u.userDB.UpdateUserCommand(ctx, userID, Type, UUID, value)
 }
 func (u *userDatabase) GetUserCommands(ctx context.Context, userID string, Type int32) ([]*user.CommandInfoResp, error) {
 	commands, err := u.userDB.GetUserCommand(ctx, userID, Type)
-	return commands, err
-}
-func (u *userDatabase) GetAllUserCommands(ctx context.Context, userID string) ([]*user.AllCommandInfoResp, error) {
-	commands, err := u.userDB.GetAllUserCommand(ctx, userID)
 	return commands, err
 }

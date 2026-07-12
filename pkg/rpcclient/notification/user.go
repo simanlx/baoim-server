@@ -17,12 +17,12 @@ package notification
 import (
 	"context"
 
-	"BaoIM-Server/pkg/common/config"
+	"baoim/protocol/constant"
+	"baoim/protocol/sdkws"
+
 	"BaoIM-Server/pkg/common/db/controller"
 	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 	"BaoIM-Server/pkg/rpcclient"
-	"baoim/protocol/constant"
-	"baoim/protocol/sdkws"
 )
 
 type UserNotificationSender struct {
@@ -59,12 +59,11 @@ func WithUserFunc(
 }
 
 func NewUserNotificationSender(
-	config *config.GlobalConfig,
 	msgRpcClient *rpcclient.MessageRpcClient,
 	opts ...userNotificationSenderOptions,
 ) *UserNotificationSender {
 	f := &UserNotificationSender{
-		NotificationSender: rpcclient.NewNotificationSender(config, rpcclient.WithRpcClient(msgRpcClient)),
+		NotificationSender: rpcclient.NewNotificationSender(rpcclient.WithRpcClient(msgRpcClient)),
 	}
 	for _, opt := range opts {
 		opt(f)
@@ -72,7 +71,7 @@ func NewUserNotificationSender(
 	return f
 }
 
-/* func (u *UserNotificationSender) getUsersInfoMap(
+func (u *UserNotificationSender) getUsersInfoMap(
 	ctx context.Context,
 	userIDs []string,
 ) (map[string]*sdkws.UserInfo, error) {
@@ -85,9 +84,9 @@ func NewUserNotificationSender(
 		result[user.GetUserID()] = user.(*sdkws.UserInfo)
 	}
 	return result, nil
-} */
+}
 
-/* func (u *UserNotificationSender) getFromToUserNickname(
+func (u *UserNotificationSender) getFromToUserNickname(
 	ctx context.Context,
 	fromUserID, toUserID string,
 ) (string, string, error) {
@@ -96,29 +95,11 @@ func NewUserNotificationSender(
 		return "", "", nil
 	}
 	return users[fromUserID].Nickname, users[toUserID].Nickname, nil
-} */
+}
 
 func (u *UserNotificationSender) UserStatusChangeNotification(
 	ctx context.Context,
 	tips *sdkws.UserStatusChangeTips,
 ) error {
 	return u.Notification(ctx, tips.FromUserID, tips.ToUserID, constant.UserStatusChangeNotification, tips)
-}
-func (u *UserNotificationSender) UserCommandUpdateNotification(
-	ctx context.Context,
-	tips *sdkws.UserCommandUpdateTips,
-) error {
-	return u.Notification(ctx, tips.FromUserID, tips.ToUserID, constant.UserCommandUpdateNotification, tips)
-}
-func (u *UserNotificationSender) UserCommandAddNotification(
-	ctx context.Context,
-	tips *sdkws.UserCommandAddTips,
-) error {
-	return u.Notification(ctx, tips.FromUserID, tips.ToUserID, constant.UserCommandAddNotification, tips)
-}
-func (u *UserNotificationSender) UserCommandDeleteNotification(
-	ctx context.Context,
-	tips *sdkws.UserCommandDeleteTips,
-) error {
-	return u.Notification(ctx, tips.FromUserID, tips.ToUserID, constant.UserCommandDeleteNotification, tips)
 }

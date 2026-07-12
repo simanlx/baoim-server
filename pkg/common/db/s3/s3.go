@@ -24,7 +24,7 @@ import (
 type PartLimit struct {
 	MinPartSize int64 `json:"minPartSize"`
 	MaxPartSize int64 `json:"maxPartSize"`
-	MaxNumSize  int64 `json:"maxNumSize"`
+	MaxNumSize  int   `json:"maxNumSize"`
 }
 
 type InitiateMultipartUploadResult struct {

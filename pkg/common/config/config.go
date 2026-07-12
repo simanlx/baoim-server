@@ -16,13 +16,12 @@ package config
 
 import (
 	"bytes"
-	"time"
 
 	"baoim/tools/discoveryregistry"
 	"gopkg.in/yaml.v3"
 )
 
-var Config GlobalConfig
+var Config configStruct
 
 const ConfKey = "conf"
 
@@ -58,7 +57,7 @@ type MYSQL struct {
 	SlowThreshold int      `yaml:"slowThreshold"`
 }
 
-type GlobalConfig struct {
+type configStruct struct {
 	Envs struct {
 		Discovery string `yaml:"discovery"`
 	}
@@ -165,14 +164,6 @@ type GlobalConfig struct {
 			SessionToken    string `yaml:"sessionToken"`
 			PublicRead      bool   `yaml:"publicRead"`
 		} `yaml:"kodo"`
-		Aws struct {
-			Endpoint        string `yaml:"endpoint"`
-			Region          string `yaml:"region"`
-			Bucket          string `yaml:"bucket"`
-			AccessKeyID     string `yaml:"accessKeyID"`
-			AccessKeySecret string `yaml:"accessKeySecret"`
-			PublicRead      bool   `yaml:"publicRead"`
-		} `yaml:"aws"`
 	} `yaml:"object"`
 
 	RpcPort struct {
@@ -181,12 +172,12 @@ type GlobalConfig struct {
 		OpenImMessagePort        []int `yaml:"openImMessagePort"`
 		OpenImMessageGatewayPort []int `yaml:"openImMessageGatewayPort"`
 		OpenImGroupPort          []int `yaml:"openImGroupPort"`
-		OpenImRoomPort           []int `yaml:"openImRoomPort"` //增加直播聊天室服务rpc
 		OpenImAuthPort           []int `yaml:"openImAuthPort"`
 		OpenImPushPort           []int `yaml:"openImPushPort"`
 		OpenImConversationPort   []int `yaml:"openImConversationPort"`
-		OpenImThirdPort          []int `yaml:"openImThirdPort"`
 		OpenImRtcPort            []int `yaml:"openImRtcPort"`
+		OpenImThirdPort          []int `yaml:"openImThirdPort"`
+		OpenImEncryptionPort     []int `yaml:"openImEncryptionPort"`
 	} `yaml:"rpcPort"`
 
 	RpcRegisterName struct {
@@ -196,11 +187,12 @@ type GlobalConfig struct {
 		OpenImPushName           string `yaml:"openImPushName"`
 		OpenImMessageGatewayName string `yaml:"openImMessageGatewayName"`
 		OpenImGroupName          string `yaml:"openImGroupName"`
-		OpenImRoomName           string `yaml:"openImRoomName"`
 		OpenImAuthName           string `yaml:"openImAuthName"`
 		OpenImConversationName   string `yaml:"openImConversationName"`
+		OpenImEncryptionName     string `yaml:"openImEncryptionName"`
 		OpenImThirdName          string `yaml:"openImThirdName"`
-		OpenImRtcName            string `yaml:"openImRtcName"` //增加rtc
+		OpenImExtendMsgName      string `yaml:"openImExtendMsgName"`
+		OpenImRtcName            string `yaml:"openImRtcName"`
 	} `yaml:"rpcRegisterName"`
 
 	Log struct {
@@ -220,6 +212,7 @@ type GlobalConfig struct {
 		WebsocketMaxMsgLen       int   `yaml:"websocketMaxMsgLen"`
 		WebsocketTimeout         int   `yaml:"websocketTimeout"`
 		WebsocketWriteBufferSize int   `yaml:"websocketWriteBufferSize"`
+		IsEncryption             bool  `yaml:"isEncryption"`
 	} `yaml:"longConnSvr"`
 
 	Push struct {
@@ -270,8 +263,6 @@ type GlobalConfig struct {
 		FriendVerify *bool `yaml:"friendVerify"`
 	} `yaml:"messageVerify"`
 
-	LocalCache localCache `yaml:"localCache"`
-
 	IOSPush struct {
 		PushSound  string `yaml:"pushSound"`
 		BadgeCount bool   `yaml:"badgeCount"`
@@ -310,7 +301,7 @@ type GlobalConfig struct {
 		CallbackKillGroupMember            CallBackConfig `yaml:"killGroupMember"`
 		CallbackDismissGroup               CallBackConfig `yaml:"dismissGroup"`
 		CallbackBeforeJoinGroup            CallBackConfig `yaml:"joinGroup"`
-		CallbackAfterTransferGroupOwner    CallBackConfig `yaml:"transferGroupOwner"`
+		CallbackTransferGroupOwnerAfter    CallBackConfig `yaml:"transferGroupOwner"`
 		CallbackBeforeInviteUserToGroup    CallBackConfig `yaml:"beforeInviteUserToGroup"`
 		CallbackAfterJoinGroup             CallBackConfig `yaml:"joinGroupAfter"`
 		CallbackAfterSetGroupInfo          CallBackConfig `yaml:"setGroupInfoAfter"`
@@ -335,7 +326,6 @@ type GlobalConfig struct {
 		MessagePrometheusPort         []int  `yaml:"messagePrometheusPort"`
 		MessageGatewayPrometheusPort  []int  `yaml:"messageGatewayPrometheusPort"`
 		GroupPrometheusPort           []int  `yaml:"groupPrometheusPort"`
-		RoomPrometheusPort            []int  `yaml:"roomPrometheusPort"`
 		AuthPrometheusPort            []int  `yaml:"authPrometheusPort"`
 		PushPrometheusPort            []int  `yaml:"pushPrometheusPort"`
 		ConversationPrometheusPort    []int  `yaml:"conversationPrometheusPort"`
@@ -344,10 +334,6 @@ type GlobalConfig struct {
 		ThirdPrometheusPort           []int  `yaml:"thirdPrometheusPort"`
 	} `yaml:"prometheus"`
 	Notification notification `yaml:"notification"`
-}
-
-func NewGlobalConfig() *GlobalConfig {
-	return &GlobalConfig{}
 }
 
 type notification struct {
@@ -389,34 +375,7 @@ type notification struct {
 	ConversationSetPrivate NotificationConf `yaml:"conversationSetPrivate"`
 }
 
-type LocalCache struct {
-	Topic         string `yaml:"topic"`
-	SlotNum       int    `yaml:"slotNum"`
-	SlotSize      int    `yaml:"slotSize"`
-	SuccessExpire int    `yaml:"successExpire"` // second
-	FailedExpire  int    `yaml:"failedExpire"`  // second
-}
-
-func (l LocalCache) Failed() time.Duration {
-	return time.Second * time.Duration(l.FailedExpire)
-}
-
-func (l LocalCache) Success() time.Duration {
-	return time.Second * time.Duration(l.SuccessExpire)
-}
-
-func (l LocalCache) Enable() bool {
-	return l.Topic != "" && l.SlotNum > 0 && l.SlotSize > 0
-}
-
-type localCache struct {
-	User         LocalCache `yaml:"user"`
-	Group        LocalCache `yaml:"group"`
-	Friend       LocalCache `yaml:"friend"`
-	Conversation LocalCache `yaml:"conversation"`
-}
-
-func (c *GlobalConfig) GetServiceNames() []string {
+func (c *configStruct) GetServiceNames() []string {
 	return []string{
 		c.RpcRegisterName.OpenImUserName,
 		c.RpcRegisterName.OpenImFriendName,
@@ -427,25 +386,29 @@ func (c *GlobalConfig) GetServiceNames() []string {
 		c.RpcRegisterName.OpenImAuthName,
 		c.RpcRegisterName.OpenImConversationName,
 		c.RpcRegisterName.OpenImThirdName,
+		c.RpcRegisterName.OpenImRtcName,
+		c.RpcRegisterName.OpenImEncryptionName,
 	}
 }
 
-func (c *GlobalConfig) RegisterConf2Registry(registry discoveryregistry.SvcDiscoveryRegistry) error {
+func (c *configStruct) RegisterConf2Registry(registry discoveryregistry.SvcDiscoveryRegistry) error {
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
+
 	return registry.RegisterConf2Registry(ConfKey, data)
 }
 
-func (c *GlobalConfig) GetConfFromRegistry(registry discoveryregistry.SvcDiscoveryRegistry) ([]byte, error) {
+func (c *configStruct) GetConfFromRegistry(registry discoveryregistry.SvcDiscoveryRegistry) ([]byte, error) {
 	return registry.GetConfFromRegistry(ConfKey)
 }
 
-func (c *GlobalConfig) EncodeConfig() []byte {
+func (c *configStruct) EncodeConfig() []byte {
 	buf := bytes.NewBuffer(nil)
 	if err := yaml.NewEncoder(buf).Encode(c); err != nil {
 		panic(err)
 	}
+
 	return buf.Bytes()
 }

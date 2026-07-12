@@ -17,9 +17,10 @@ package convert
 import (
 	"time"
 
-	"BaoIM-Server/pkg/common/db/table/relation"
 	pbgroup "baoim/protocol/group"
 	sdkws "baoim/protocol/sdkws"
+
+	"BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func Db2PbGroupInfo(m *relation.GroupModel, ownerUserID string, memberCount uint32) *sdkws.GroupInfo {

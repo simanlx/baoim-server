@@ -17,8 +17,9 @@ package convert
 import (
 	"time"
 
-	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 	"baoim/protocol/sdkws"
+
+	relationtb "BaoIM-Server/pkg/common/db/table/relation"
 )
 
 func UsersDB2Pb(users []*relationtb.UserModel) []*sdkws.UserInfo {

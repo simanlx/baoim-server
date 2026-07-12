@@ -20,60 +20,63 @@ import (
 	"net/url"
 	"time"
 
-	"BaoIM-Server/pkg/common/config"
-	"BaoIM-Server/pkg/common/db/cache"
-	"BaoIM-Server/pkg/common/db/controller"
 	"BaoIM-Server/pkg/common/db/mgo"
+	"BaoIM-Server/pkg/common/db/unrelation"
+
 	"BaoIM-Server/pkg/common/db/s3"
 	"BaoIM-Server/pkg/common/db/s3/cos"
 	"BaoIM-Server/pkg/common/db/s3/minio"
 	"BaoIM-Server/pkg/common/db/s3/oss"
-	"BaoIM-Server/pkg/common/db/unrelation"
-	"BaoIM-Server/pkg/rpcclient"
+
+	"google.golang.org/grpc"
+
 	"baoim/protocol/third"
 	"baoim/tools/discoveryregistry"
-	"baoim/tools/errs"
-	"google.golang.org/grpc"
+
+	"BaoIM-Server/pkg/common/config"
+	"BaoIM-Server/pkg/common/db/cache"
+	"BaoIM-Server/pkg/common/db/controller"
+	"BaoIM-Server/pkg/rpcclient"
 )
 
-func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
-	mongo, err := unrelation.NewMongo(config)
+func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) error {
+	mongo, err := unrelation.NewMongo()
 	if err != nil {
 		return err
 	}
-	logdb, err := mgo.NewLogMongo(mongo.GetDatabase(config.Mongo.Database))
+	logdb, err := mgo.NewLogMongo(mongo.GetDatabase())
 	if err != nil {
 		return err
 	}
-	s3db, err := mgo.NewS3Mongo(mongo.GetDatabase(config.Mongo.Database))
+	s3db, err := mgo.NewS3Mongo(mongo.GetDatabase())
 	if err != nil {
 		return err
 	}
-	apiURL := config.Object.ApiURL
+	apiURL := config.Config.Object.ApiURL
 	if apiURL == "" {
-		return errs.Wrap(fmt.Errorf("api is empty"))
+		return fmt.Errorf("api url is empty")
 	}
-	if _, err := url.Parse(config.Object.ApiURL); err != nil {
+	if _, err := url.Parse(config.Config.Object.ApiURL); err != nil {
 		return err
 	}
 	if apiURL[len(apiURL)-1] != '/' {
 		apiURL += "/"
 	}
 	apiURL += "object/"
-	rdb, err := cache.NewRedis(config)
+	rdb, err := cache.NewRedis()
 	if err != nil {
 		return err
 	}
-	// Select the oss method according to the profile policy
-	enable := config.Object.Enable
+	// 根据配置文件策略选择 oss 方式
+	enable := config.Config.Object.Enable
 	var o s3.Interface
-	switch enable {
+	switch config.Config.Object.Enable {
 	case "minio":
-		o, err = minio.NewMinio(cache.NewMinioCache(rdb), minio.Config(config.Object.Minio))
+		o, err = minio.NewMinio(cache.NewMinioCache(rdb))
 	case "cos":
-		o, err = cos.NewCos(cos.Config(config.Object.Cos))
+		o, err = cos.NewCos()
 	case "oss":
-		o, err = oss.NewOSS(oss.Config(config.Object.Oss))
+		o, err = oss.NewOSS()
 	default:
 		err = fmt.Errorf("invalid object enable: %s", enable)
 	}
@@ -82,11 +85,10 @@ func Start(config *config.GlobalConfig, client discoveryregistry.SvcDiscoveryReg
 	}
 	third.RegisterThirdServer(server, &thirdServer{
 		apiURL:        apiURL,
-		thirdDatabase: controller.NewThirdDatabase(cache.NewMsgCacheModel(rdb, config), logdb),
-		userRpcClient: rpcclient.NewUserRpcClient(client, config),
+		thirdDatabase: controller.NewThirdDatabase(cache.NewMsgCacheModel(rdb), logdb),
+		userRpcClient: rpcclient.NewUserRpcClient(client),
 		s3dataBase:    controller.NewS3Database(rdb, o, s3db),
 		defaultExpire: time.Hour * 24 * 7,
-		config:        config,
 	})
 	return nil
 }
@@ -97,7 +99,6 @@ type thirdServer struct {
 	s3dataBase    controller.S3Database
 	userRpcClient rpcclient.UserRpcClient
 	defaultExpire time.Duration
-	config        *config.GlobalConfig
 }
 
 func (t *thirdServer) FcmUpdateToken(ctx context.Context, req *third.FcmUpdateTokenReq) (resp *third.FcmUpdateTokenResp, err error) {

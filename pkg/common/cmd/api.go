@@ -15,43 +15,37 @@
 package cmd
 
 import (
-	"BaoIM-Server/internal/api"
-	"BaoIM-Server/pkg/common/config"
+	"fmt"
+
 	"baoim/protocol/constant"
 	"github.com/spf13/cobra"
+
+	config2 "BaoIM-Server/pkg/common/config"
 )
 
 type ApiCmd struct {
 	*RootCmd
-	initFunc func(config *config.GlobalConfig, port int, promPort int) error
 }
 
 func NewApiCmd() *ApiCmd {
-	ret := &ApiCmd{RootCmd: NewRootCmd("api"), initFunc: api.Start}
+	ret := &ApiCmd{NewRootCmd("api")}
 	ret.SetRootCmdPt(ret)
-	ret.addPreRun()
-	ret.addRunE()
+
 	return ret
 }
 
-func (a *ApiCmd) addPreRun() {
-	a.Command.PreRun = func(cmd *cobra.Command, args []string) {
-		a.port = a.getPortFlag(cmd)
-		a.prometheusPort = a.getPrometheusPortFlag(cmd)
-	}
-}
-
-func (a *ApiCmd) addRunE() {
+func (a *ApiCmd) AddApi(f func(port int, promPort int) error) {
 	a.Command.RunE = func(cmd *cobra.Command, args []string) error {
-		return a.initFunc(a.config, a.port, a.prometheusPort)
+		return f(a.getPortFlag(cmd), a.getPrometheusPortFlag(cmd))
 	}
 }
 
 func (a *ApiCmd) GetPortFromConfig(portType string) int {
+	fmt.Println("GetPortFromConfig:", portType)
 	if portType == constant.FlagPort {
-		return a.config.Api.OpenImApiPort[0]
+		return config2.Config.Api.OpenImApiPort[0]
 	} else if portType == constant.FlagPrometheusPort {
-		return a.config.Prometheus.ApiPrometheusPort[0]
+		return config2.Config.Prometheus.ApiPrometheusPort[0]
 	}
 	return 0
 }
