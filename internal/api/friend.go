@@ -93,3 +93,7 @@ func (o *FriendApi) GetSpecifiedFriendsInfo(c *gin.Context) {
 func (o *FriendApi) UpdateFriends(c *gin.Context) {
 	a2r.Call(friend.FriendClient.UpdateFriends, o.Client, c)
 }
+
+func (o *FriendApi) UpdateFriendHot(c *gin.Context) {
+	a2r.Call(friend.FriendClient.UpdateFriendHot, o.Client, c)
+}

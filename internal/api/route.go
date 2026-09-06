@@ -215,6 +215,8 @@ func newGinRouter(disCov discoveryregistry.SvcDiscoveryRegistry, rdb redis.Unive
 		// 批量更新好友信息
 		friendRouterGroup.POST("/update_friends", f.UpdateFriends)
 
+		friendRouterGroup.POST("/update_friend_hot", f.UpdateFriendHot)
+
 	}
 	room := NewRoomApi(*roomRpc)
 	roomRouter := r.Group("/room", ParseToken)

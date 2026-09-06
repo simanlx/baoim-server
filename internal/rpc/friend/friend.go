@@ -17,6 +17,8 @@ package friend
 import (
 	"baoim/tools/tx"
 	"context"
+	"math/rand"
+	"time"
 
 	"baoim/protocol/sdkws"
 
@@ -145,7 +147,6 @@ func (s *friendServer) ApplyToAddFriend(ctx context.Context, req *pbfriend.Apply
 	return resp, nil
 }
 
-// ok.
 func (s *friendServer) ImportFriends(ctx context.Context, req *pbfriend.ImportFriendReq) (resp *pbfriend.ImportFriendResp, err error) {
 	defer log.ZInfo(ctx, utils.GetFuncName()+" Return")
 	if err := authverify.CheckAdmin(ctx, s.config); err != nil {
@@ -180,7 +181,6 @@ func (s *friendServer) ImportFriends(ctx context.Context, req *pbfriend.ImportFr
 	return &pbfriend.ImportFriendResp{}, nil
 }
 
-// ok.
 func (s *friendServer) RespondFriendApply(ctx context.Context, req *pbfriend.RespondFriendApplyReq) (resp *pbfriend.RespondFriendApplyResp, err error) {
 	defer log.ZInfo(ctx, utils.GetFuncName()+" Return")
 	resp = &pbfriend.RespondFriendApplyResp{}
@@ -426,6 +426,8 @@ func (s *friendServer) GetSpecifiedFriendsInfo(ctx context.Context, req *pbfrien
 				CreateTime:     friend.CreateTime.UnixMilli(),
 				AddSource:      friend.AddSource,
 				OperatorUserID: friend.OperatorUserID,
+				Hot:            friend.Hot,
+				HotTime:        friend.HotTime,
 				Ex:             friend.Ex,
 				IsPinned:       friend.IsPinned,
 			}
@@ -485,5 +487,68 @@ func (s *friendServer) UpdateFriends(
 	if err != nil {
 		return nil, errs.Wrap(err, "FriendsInfoUpdateNotification Error")
 	}
+	return resp, nil
+}
+
+func (s *friendServer) UpdateFriendHot(
+	ctx context.Context,
+	req *pbfriend.UpdateFriendHotReq,
+) (*pbfriend.UpdateFriendHotResp, error) {
+
+	if err := authverify.CheckAccessV3(ctx, req.UserID, s.config); err != nil {
+		return nil, err
+	}
+
+	if req.FriendID == "" {
+		return nil, errs.ErrArgs.Wrap("friendIDList is empty")
+	}
+
+	friend1, err := s.friendDatabase.FindFriendsWithError(ctx, req.UserID, []string{req.FriendID})
+	if err != nil {
+		return nil, err
+	}
+	if len(friend1) < 0 {
+		return nil, errs.ErrArgs.Wrap("Not a friend")
+	}
+
+	resp := &pbfriend.UpdateFriendHotResp{}
+
+	now := time.Now()
+	if now.UnixMilli() < friend1[0].HotTime {
+		return resp, nil
+	}
+
+	friend2, err := s.friendDatabase.FindFriendsWithError(ctx, req.FriendID, []string{req.UserID})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(friend2) < 0 {
+		return nil, errs.ErrArgs.Wrap("Not a friend")
+	}
+
+	val := make(map[string]any)
+
+	//取随机数
+	num := rand.Intn(11) + 5 // 5‑15
+
+	val["hot"] = friend2[0].Hot + int64(num)
+
+	//// 先拿到今天的年月日，加1天，置时分秒为0  秒级时间戳
+	hotTime := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).UnixMilli()
+	val["hot_time"] = hotTime
+
+	if err = s.friendDatabase.UpdateFriendHot(ctx, req.UserID, req.FriendID, val); err != nil {
+		return nil, err
+	}
+	if err = s.friendDatabase.UpdateFriendHot(ctx, req.FriendID, req.UserID, val); err != nil {
+		return nil, err
+	}
+
+	err = s.notificationSender.FriendsInfoUpdateNotification(ctx, req.UserID, []string{req.FriendID})
+	if err != nil {
+		return nil, errs.Wrap(err, "FriendsInfoUpdateNotification Error")
+	}
+
 	return resp, nil
 }

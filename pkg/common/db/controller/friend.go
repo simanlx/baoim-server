@@ -77,6 +77,8 @@ type FriendDatabase interface {
 
 	// UpdateFriends updates fields for friends
 	UpdateFriends(ctx context.Context, ownerUserID string, friendUserIDs []string, val map[string]any) (err error)
+
+	UpdateFriendHot(ctx context.Context, ownerUserID string, friendUserID string, val map[string]any) (err error)
 }
 
 type friendDatabase struct {
@@ -386,4 +388,11 @@ func (f *friendDatabase) UpdateFriends(ctx context.Context, ownerUserID string, 
 		return err
 	}
 	return f.cache.DelFriends(ownerUserID, friendUserIDs).ExecDel(ctx)
+}
+
+func (f *friendDatabase) UpdateFriendHot(ctx context.Context, ownerUserID string, friendUserID string, val map[string]any) (err error) {
+	if len(val) == 0 {
+		return nil
+	}
+	return f.friend.UpdateFriends(ctx, ownerUserID, []string{friendUserID}, val)
 }

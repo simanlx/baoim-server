@@ -67,6 +67,7 @@ services:
     ports:
      - "${ZOOKEEPER_PORT:-12181}:2181"
     volumes:
+      - "${DATA_DIR:-./}/components/zookeeper:/zookeeper"
       - "/etc/localtime:/etc/localtime"
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes

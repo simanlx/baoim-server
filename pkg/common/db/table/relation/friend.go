@@ -29,9 +29,13 @@ type FriendModel struct {
 	CreateTime     time.Time `bson:"create_time"`
 	AddSource      int32     `bson:"add_source"`
 	OperatorUserID string    `bson:"operator_user_id"`
-	Ex             string    `bson:"ex"`
-	IsPinned       bool      `bson:"is_pinned"`
-	Del            bool      `bson:"del"`
+
+	Hot     int64 `bson:"hot"`
+	HotTime int64 `bson:"hot_time"`
+
+	Ex       string `bson:"ex"`
+	IsPinned bool   `bson:"is_pinned"`
+	Del      bool   `bson:"del"`
 }
 
 // FriendModelInterface defines the operations for managing friends in MongoDB.
