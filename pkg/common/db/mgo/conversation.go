@@ -157,7 +157,8 @@ func (c *ConversationMgo) GetAllConversationIDsNumber(ctx context.Context) (int6
 }
 
 func (c *ConversationMgo) PageConversationIDs(ctx context.Context, pagination pagination.Pagination) (conversationIDs []string, err error) {
-	return mgoutil.FindPageOnly[string](ctx, c.coll, bson.M{}, pagination, options.Find().SetProjection(bson.M{"conversation_id": 1}))
+	//增加  "_id": 0修复无法取得conversation_id
+	return mgoutil.FindPageOnly[string](ctx, c.coll, bson.M{}, pagination, options.Find().SetProjection(bson.M{"conversation_id": 1, "_id": 0}))
 }
 
 func (c *ConversationMgo) GetConversationsByConversationID(ctx context.Context, conversationIDs []string) ([]*relation.ConversationModel, error) {

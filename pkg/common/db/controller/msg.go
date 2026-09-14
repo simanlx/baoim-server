@@ -918,7 +918,7 @@ func (d *delMsgRecursionStruct) getSetMinSeq() int64 {
 // index 0....19(del) 20...69
 // seq 70
 // set minSeq 21
-// recursion deletes the list and returns the set minimum seq.
+// 递归删除列表并返回设置的最小seq。
 func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversationID string, index int64, delStruct *delMsgRecursionStruct, remainTime int64) (int64, error) {
 	// find from oldest list
 	msgDocModel, err := db.msgDocDatabase.GetMsgDocModelByIndex(ctx, conversationID, index, 1)
@@ -938,18 +938,26 @@ func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversatio
 		}
 		return delStruct.getSetMinSeq() + 1, nil
 	}
+
 	log.ZDebug(ctx, "doc info", "conversationID", conversationID, "index", index, "docID", msgDocModel.DocID, "len", len(msgDocModel.Msg))
 	if int64(len(msgDocModel.Msg)) > db.msg.GetSingleGocMsgNum() {
 		log.ZWarn(ctx, "msgs too large", nil, "lenth", len(msgDocModel.Msg), "docID:", msgDocModel.DocID)
 	}
+
 	if msgDocModel.IsFull() && msgDocModel.Msg[len(msgDocModel.Msg)-1].Msg.SendTime+(remainTime*1000) < utils.GetCurrentTimestampByMill() {
 		log.ZDebug(ctx, "doc is full and all msg is expired", "docID", msgDocModel.DocID)
 		delStruct.delDocIDs = append(delStruct.delDocIDs, msgDocModel.DocID)
 		delStruct.minSeq = msgDocModel.Msg[len(msgDocModel.Msg)-1].Msg.Seq
 	} else {
+
 		var delMsgIndexs []int
 		for i, MsgInfoModel := range msgDocModel.Msg {
+
 			if MsgInfoModel != nil && MsgInfoModel.Msg != nil {
+				//===== {"content":"6"} 1789386420049 1789469400000 1789383000000
+
+				//println("=====", MsgInfoModel.Msg.Content, utils.GetCurrentTimestampByMill(), MsgInfoModel.Msg.SendTime+(remainTime*1000), MsgInfoModel.Msg.SendTime)
+				//println("=====", MsgInfoModel.Msg.Content)
 				if utils.GetCurrentTimestampByMill() > MsgInfoModel.Msg.SendTime+(remainTime*1000) {
 					delMsgIndexs = append(delMsgIndexs, i)
 				}
@@ -962,6 +970,8 @@ func (db *commonMsgDatabase) deleteMsgRecursion(ctx context.Context, conversatio
 			delStruct.minSeq = int64(msgDocModel.Msg[delMsgIndexs[len(delMsgIndexs)-1]].Msg.Seq)
 		}
 	}
+
+	println("删除???")
 	seq, err := db.deleteMsgRecursion(ctx, conversationID, index+1, delStruct, remainTime)
 	return seq, err
 }
