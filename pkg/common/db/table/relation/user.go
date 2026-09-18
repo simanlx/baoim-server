@@ -26,6 +26,8 @@ type UserModel struct {
 	UserID           string    `bson:"user_id"`
 	Nickname         string    `bson:"nickname"`
 	FaceURL          string    `bson:"face_url"`
+	Vip              int32     `bson:"v"`
+	Frame            int32     `bson:"f"` //头像框
 	Ex               string    `bson:"ex"`
 	AppMangerLevel   int32     `bson:"app_manger_level"`
 	GlobalRecvMsgOpt int32     `bson:"global_recv_msg_opt"`

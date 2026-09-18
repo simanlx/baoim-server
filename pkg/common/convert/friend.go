@@ -79,6 +79,8 @@ func FriendsDB2Pb(
 		friendPb.FriendUser.UserID = users[friend.FriendUserID].UserID
 		friendPb.FriendUser.Nickname = users[friend.FriendUserID].Nickname
 		friendPb.FriendUser.FaceURL = users[friend.FriendUserID].FaceURL
+		friendPb.FriendUser.V = users[friend.FriendUserID].V
+		friendPb.FriendUser.F = users[friend.FriendUserID].F
 		friendPb.FriendUser.Ex = users[friend.FriendUserID].Ex
 		friendPb.CreateTime = friend.CreateTime.Unix()
 		friendPb.IsPinned = friend.IsPinned

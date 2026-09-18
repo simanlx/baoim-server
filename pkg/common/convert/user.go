@@ -28,6 +28,8 @@ func UsersDB2Pb(users []*relationtb.UserModel) []*sdkws.UserInfo {
 			UserID:           user.UserID,
 			Nickname:         user.Nickname,
 			FaceURL:          user.FaceURL,
+			V:                user.Vip,
+			F:                user.Frame,
 			Ex:               user.Ex,
 			CreateTime:       user.CreateTime.UnixMilli(),
 			AppMangerLevel:   user.AppMangerLevel,
@@ -43,6 +45,8 @@ func UserPb2DB(user *sdkws.UserInfo) *relationtb.UserModel {
 		UserID:           user.UserID,
 		Nickname:         user.Nickname,
 		FaceURL:          user.FaceURL,
+		Vip:              user.V,
+		Frame:            user.F,
 		Ex:               user.Ex,
 		CreateTime:       time.UnixMilli(user.CreateTime),
 		AppMangerLevel:   user.AppMangerLevel,
@@ -58,6 +62,8 @@ func UserPb2DBMap(user *sdkws.UserInfo) map[string]any {
 	fields := map[string]any{
 		"nickname":            user.Nickname,
 		"face_url":            user.FaceURL,
+		"v":                   user.V,
+		"f":                   user.F,
 		"ex":                  user.Ex,
 		"app_manager_level":   user.AppMangerLevel,
 		"global_recv_msg_opt": user.GlobalRecvMsgOpt,
@@ -84,6 +90,13 @@ func UserPb2DBMapEx(user *sdkws.UserInfoWithEx) map[string]any {
 	if user.FaceURL != nil {
 		val["face_url"] = user.FaceURL.Value
 	}
+	if user.V != nil {
+		val["v"] = user.V.Value
+	}
+	if user.FaceURL != nil {
+		val["f"] = user.F.Value
+	}
+
 	if user.Ex != nil {
 		val["ex"] = user.Ex.Value
 	}
